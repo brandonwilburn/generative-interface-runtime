@@ -61,6 +61,8 @@ just like the built-ins.
 | `scripts/test-json-parse.mjs` | Verifies the LLM JSON extractor (fences, think blocks, trailing prose, array wrappers) | When the LLM output parser changes |
 | `scripts/test-api-registration.mjs` | End-to-end test: register API → call endpoint → cache hit → fresh bypass | When the BYOAPI flow changes |
 | `scripts/test-api-keys.mjs` | End-to-end test for the API Keys vault: create/list/use/delete | When key resolution changes |
+| `scripts/sample-api.mjs` | Tiny self-contained HTTP server (no deps) with 8 endpoints for testing the BYOAPI flow by hand | When the sample API needs a new endpoint or different data |
+| `scripts/test-sample-api.mjs` | End-to-end test: register the sample API, call auth-gated and open endpoints through the middleware | When the sample API or the registration flow changes |
 | `samples/hourly_product_mix.csv` | 336-row test fixture | Re-generate via `node scripts/gen-hourly-mix.mjs` |
 | `docs/API_REGISTRATION.md` | Design doc for the BYOAPI flow | When the API registration design changes |
 
