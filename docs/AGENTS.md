@@ -53,12 +53,14 @@ just like the built-ins.
 | `vite/apiExtractor.ts` | LLM-driven API endpoint extraction (focused system prompt) | Changing how endpoints are derived |
 | `vite/docsFetcher.ts` | URL fetch with timeout, size cap, HTML strip | Changing docs link handling |
 | `vite/apiCaller.ts` | Live API call execution + in-memory cache + param substitution | Changing live-call behavior |
+| `vite/keysApi.ts` | API Keys vault: storage, CRUD, key resolution at call time | Adding/renaming/removing keys |
 | `vite.config.ts` | Vite config, plugin order, dev server port | Changing dev setup |
 | `scripts/smoke.ts` | E2E pipeline test (MockPlanner) | Adding a smoke case |
 | `scripts/test-table-alias.mjs` | Verifies `lookupKey` aliasing | When aliasing changes |
 | `scripts/test-where-aggregate.mjs` | Verifies `where` + chart aggregation | When filtering/aggregation changes |
 | `scripts/test-json-parse.mjs` | Verifies the LLM JSON extractor (fences, think blocks, trailing prose, array wrappers) | When the LLM output parser changes |
 | `scripts/test-api-registration.mjs` | End-to-end test: register API → call endpoint → cache hit → fresh bypass | When the BYOAPI flow changes |
+| `scripts/test-api-keys.mjs` | End-to-end test for the API Keys vault: create/list/use/delete | When key resolution changes |
 | `samples/hourly_product_mix.csv` | 336-row test fixture | Re-generate via `node scripts/gen-hourly-mix.mjs` |
 | `docs/API_REGISTRATION.md` | Design doc for the BYOAPI flow | When the API registration design changes |
 

@@ -8,6 +8,8 @@
  *      docs link / docs file / sample request-response pairs. The
  *      backend calls the LLM extractor to derive endpoints, the
  *      user reviews, and we save.
+ *   3. Manage named API keys in the server-side vault. Keys are
+ *      referenced by name from any number of registered APIs.
  *
  * Also lists existing sources with delete affordances.
  */
@@ -17,7 +19,11 @@ import {
   type ApiSourceRecord,
   type ApiRegistrationInput,
   type ApiSamplePair,
+  type ApiKeyPublic,
   fetchSourceData,
+  listApiKeys,
+  createApiKey,
+  deleteApiKey,
 } from "@/data/sourcesRegistry";
 import { summarizeSource } from "@/data/dynamicCapabilities";
 import s from "./app.module.css";
@@ -33,7 +39,7 @@ interface Props {
   onRemove: (id: string) => Promise<void>;
 }
 
-type Tab = "upload" | "api" | "docs";
+type Tab = "upload" | "api" | "keys";
 
 interface Preview {
   kind: "csv" | "json";
@@ -229,13 +235,13 @@ export function DataSourceDialog(props: Props) {
             API
           </button>
           <button
-            className={[s["dsd__tab"], tab === "docs" ? s["dsd__tab--active"] : ""].join(" ")}
-            onClick={() => setTab("docs")}
+            className={[s["dsd__tab"], tab === "keys" ? s["dsd__tab--active"] : ""].join(" ")}
+            onClick={() => setTab("keys")}
             type="button"
             role="tab"
-            aria-selected={tab === "docs"}
+            aria-selected={tab === "keys"}
           >
-            Docs link
+            API keys
           </button>
         </div>
 
@@ -405,11 +411,11 @@ export function DataSourceDialog(props: Props) {
           />
         )}
 
-        {tab === "docs" && (
-          <ApiRegistrationForm
-            busy={busy}
+        {tab === "keys" && (
+          <KeysManager
             localError={localError}
-            onSubmit={submitApi}
+            onError={setLocalError}
+            onSuccess={reset}
           />
         )}
 
@@ -440,6 +446,8 @@ function ApiRegistrationForm({
 }) {
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [authMode, setAuthMode] = useState<"key" | "inline" | "none">("none");
+  const [keyName, setKeyName] = useState("");
   const [authHeader, setAuthHeader] = useState("");
   const [docsLink, setDocsLink] = useState("");
   const [docsFile, setDocsFile] = useState<{ filename: string; content: string } | null>(null);
@@ -447,7 +455,17 @@ function ApiRegistrationForm({
   const [sampleMethod, setSampleMethod] = useState<"GET" | "POST">("GET");
   const [samplePath, setSamplePath] = useState("");
   const [samples, setSamples] = useState<ApiSamplePair[]>([]);
+  const [keys, setKeys] = useState<ApiKeyPublic[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Fetch the available keys so the user can pick one. Re-fetched
+  // when the tab becomes active (handled in parent via key prop) so
+  // newly added keys show up immediately.
+  useEffect(() => {
+    listApiKeys()
+      .then(setKeys)
+      .catch(() => setKeys([]));
+  }, []);
 
   const addSample = () => {
     if (!sampleText.trim()) return;
@@ -482,7 +500,8 @@ function ApiRegistrationForm({
     const input: ApiRegistrationInput = {
       name: name.trim(),
       baseUrl: baseUrl.trim(),
-      ...(authHeader.trim() ? { authHeader: authHeader.trim() } : {}),
+      ...(authMode === "key" && keyName.trim() ? { keyName: keyName.trim() } : {}),
+      ...(authMode === "inline" && authHeader.trim() ? { authHeader: authHeader.trim() } : {}),
       ...(docsLink.trim() ? { docsLink: docsLink.trim() } : {}),
       ...(docsFile ? { docsFile } : {}),
       ...(samples.length > 0 ? { samplePairs: samples } : {}),
@@ -491,6 +510,8 @@ function ApiRegistrationForm({
     // Clear the form on success — the parent will reset busy state.
     setName("");
     setBaseUrl("");
+    setAuthMode("none");
+    setKeyName("");
     setAuthHeader("");
     setDocsLink("");
     setDocsFile(null);
@@ -537,20 +558,80 @@ function ApiRegistrationForm({
           </label>
         </div>
 
-        <label className={s["dsd__field"]}>
-          <span className={s["dsd__field-label"]}>Authorization header (optional)</span>
-          <input
-            type="text"
-            className={s["dsd__input"]}
-            value={authHeader}
-            onChange={(e) => setAuthHeader(e.target.value)}
-            placeholder="Bearer sk-…"
-          />
-          <span className={s["dsd__field-hint"]}>
-            Stored server-side only — never sent to the browser bundle. Sent as
-            the <code>Authorization</code> header on every call.
-          </span>
-        </label>
+        <div className={s["dsd__field"]}>
+          <span className={s["dsd__field-label"]}>Authentication</span>
+          <div className={s["dsd__auth-modes"]} role="radiogroup">
+            <label className={s["dsd__auth-mode"]}>
+              <input
+                type="radio"
+                name="authMode"
+                checked={authMode === "none"}
+                onChange={() => setAuthMode("none")}
+              />
+              <span>No auth</span>
+            </label>
+            <label className={s["dsd__auth-mode"]}>
+              <input
+                type="radio"
+                name="authMode"
+                checked={authMode === "key"}
+                onChange={() => setAuthMode("key")}
+                disabled={keys.length === 0}
+              />
+              <span>
+                Use a saved key
+                {keys.length === 0 && (
+                  <em className={s["dsd__auth-mode-note"]}> (none — add one in the API keys tab)</em>
+                )}
+              </span>
+            </label>
+            <label className={s["dsd__auth-mode"]}>
+              <input
+                type="radio"
+                name="authMode"
+                checked={authMode === "inline"}
+                onChange={() => setAuthMode("inline")}
+              />
+              <span>Inline header</span>
+            </label>
+          </div>
+          {authMode === "key" && keys.length > 0 && (
+            <select
+              className={s["dsd__input"]}
+              value={keyName}
+              onChange={(e) => setKeyName(e.target.value)}
+            >
+              <option value="">— pick a key —</option>
+              {keys.map((k) => (
+                <option key={k.id} value={k.name}>
+                  {k.name}
+                  {k.usedBySources > 0 ? ` (used by ${k.usedBySources})` : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          {authMode === "inline" && (
+            <>
+              <input
+                type="text"
+                className={s["dsd__input"]}
+                value={authHeader}
+                onChange={(e) => setAuthHeader(e.target.value)}
+                placeholder="Bearer sk-…"
+              />
+              <span className={s["dsd__field-hint"]}>
+                Stored server-side only — never sent to the browser bundle. Sent
+                as the <code>Authorization</code> header on every call.
+              </span>
+            </>
+          )}
+          {authMode === "key" && (
+            <span className={s["dsd__field-hint"]}>
+              The actual key value stays in the server-side vault. The browser
+              only ever sees the name.
+            </span>
+          )}
+        </div>
 
         <details className={s["dsd__api-section"]}>
           <summary>Documentation (helps the extractor a lot)</summary>
@@ -685,6 +766,234 @@ function ApiRegistrationForm({
             {busy ? "Extracting endpoints…" : "Register API"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * API Keys vault manager.
+ *
+ * Lets the user add named API keys that live in the server-side
+ * `data/keys.json`. Each key can be referenced by name from any
+ * number of registered API sources. The key VALUE is never sent to
+ * the browser — only the name + metadata.
+ *
+ * Keys are listed with:
+ *   - name
+ *   - when they were added
+ *   - when they were last used
+ *   - how many API sources reference them
+ *
+ * Adding a key requires a name and a value. Names are sanitized
+ * server-side (lowercase, no spaces). PATCH updates the value or
+ * notes; rename goes through too. Delete removes the key entirely;
+ * any API source still referencing it will fail its next call with a
+ * clear "key not found" error.
+ */
+function KeysManager({
+  localError,
+  onError,
+  onSuccess,
+}: {
+  localError: string | null;
+  onError: (msg: string | null) => void;
+  onSuccess: () => void;
+}) {
+  const [keys, setKeys] = useState<ApiKeyPublic[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [newNotes, setNewNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      setKeys(await listApiKeys());
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const add = async () => {
+    if (!newName.trim() || !newValue.trim()) return;
+    setBusy(true);
+    onError(null);
+    try {
+      await createApiKey({
+        name: newName.trim(),
+        value: newValue,
+        ...(newNotes.trim() ? { notes: newNotes.trim() } : {}),
+      });
+      setNewName("");
+      setNewValue("");
+      setNewNotes("");
+      setShowAdd(false);
+      onSuccess();
+      await refresh();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: string, name: string) => {
+    if (!confirm(`Delete key "${name}"? Any API source using it will fail its next call.`)) return;
+    setBusy(true);
+    onError(null);
+    try {
+      await deleteApiKey(id);
+      await refresh();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={s["dsd__body"]}>
+      <div className={s["dsd__layout"]}>
+        <section className={s["dsd__pane"]}>
+          <h3 className={s["dsd__pane-title"]}>
+            Add a key
+            <button
+              className={s["dsd__btn"]}
+              type="button"
+              onClick={() => setShowAdd(!showAdd)}
+              disabled={busy}
+              style={{ marginLeft: "auto" }}
+            >
+              {showAdd ? "Cancel" : "+ New key"}
+            </button>
+          </h3>
+          <p className={s["dsd__api-intro"]}>
+            Keys live in a server-side vault (<code>data/keys.json</code>,
+            gitignored). The actual value never reaches the browser bundle —
+            registered APIs reference keys by name, the middleware resolves
+            the value at call time.
+          </p>
+
+          {showAdd && (
+            <div className={s["dsd__form"]}>
+              <label className={s["dsd__field"]}>
+                <span className={s["dsd__field-label"]}>Key name</span>
+                <input
+                  type="text"
+                  className={s["dsd__input"]}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="stripe-prod"
+                  autoFocus
+                />
+                <span className={s["dsd__field-hint"]}>
+                  Lowercase letters, digits, '-', '_'. Used in the API
+                  registration form to pick this key.
+                </span>
+              </label>
+              <label className={s["dsd__field"]}>
+                <span className={s["dsd__field-label"]}>Value</span>
+                <input
+                  type="text"
+                  className={s["dsd__input"]}
+                  value={newValue}
+                  onChange={(e) => setNewValue(e.target.value)}
+                  placeholder="Bearer sk-… or sk-… or whatever the API expects"
+                />
+                <span className={s["dsd__field-hint"]}>
+                  Sent verbatim as the <code>Authorization</code> header.
+                </span>
+              </label>
+              <label className={s["dsd__field"]}>
+                <span className={s["dsd__field-label"]}>Notes (optional)</span>
+                <input
+                  type="text"
+                  className={s["dsd__input"]}
+                  value={newNotes}
+                  onChange={(e) => setNewNotes(e.target.value)}
+                  placeholder="Production Stripe key, example.com account"
+                />
+              </label>
+              {localError && <div className={s["dsd__error"]}>{localError}</div>}
+              <div className={s["dsd__actions"]}>
+                <button
+                  className={[s["dsd__btn"], s["dsd__btn--primary"]].join(" ")}
+                  type="button"
+                  disabled={!newName.trim() || !newValue.trim() || busy}
+                  onClick={add}
+                >
+                  {busy ? "Saving…" : "Save key"}
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className={s["dsd__pane"]}>
+          <h3 className={s["dsd__pane-title"]}>
+            Saved keys
+            <span className={s["dsd__count"]}>{keys.length}</span>
+          </h3>
+          {loading && <div className={s["dsd__empty"]}>Loading…</div>}
+          {!loading && keys.length === 0 && (
+            <div className={s["dsd__empty"]}>
+              No keys yet. Add one to the left to reference it from any API.
+            </div>
+          )}
+          {!loading && keys.length > 0 && (
+            <ul className={s["dsd__list"]}>
+              {keys.map((k) => (
+                <li key={k.id} className={s["dsd__list-item"]}>
+                  <div className={s["dsd__list-head"]}>
+                    <div className={s["dsd__list-name"]}>
+                      <code>{k.name}</code>
+                    </div>
+                    <button
+                      className={s["dsd__list-remove"]}
+                      onClick={() => void remove(k.id, k.name)}
+                      type="button"
+                      aria-label={`Delete key ${k.name}`}
+                      title="Delete key"
+                      disabled={busy}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className={s["dsd__list-meta"]}>
+                    <span>
+                      Added {new Date(k.createdAt).toLocaleDateString()}
+                    </span>
+                    {k.lastUsedAt && (
+                      <span>
+                        {" · last used "}
+                        {new Date(k.lastUsedAt).toLocaleString()}
+                      </span>
+                    )}
+                    <span>
+                      {" · "}
+                      {k.usedBySources === 0
+                        ? "no APIs use this"
+                        : `used by ${k.usedBySources} API${k.usedBySources === 1 ? "" : "s"}`}
+                    </span>
+                  </div>
+                  {k.notes && (
+                    <div className={s["dsd__list-summary"]}>{k.notes}</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </div>
   );

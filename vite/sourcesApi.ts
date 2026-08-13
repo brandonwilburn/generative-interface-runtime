@@ -35,6 +35,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { extractEndpoints } from "./apiExtractor";
 import { fetchDocs } from "./docsFetcher";
 import { callEndpoint, clearApiCache } from "./apiCaller";
+import { findKeyByName, resolveAuthHeader } from "./keysApi";
 import type {
   ApiSamplePair,
   ApiSourceRecord,
@@ -49,7 +50,7 @@ interface SourceColumn {
   samples: unknown[];
 }
 
-interface SourceStore {
+export interface SourceStore {
   sources: SourceRecord[];
   /** Rows indexed by source id. Only used for csv/json. */
   rows: Record<string, Array<Record<string, unknown>>>;
@@ -280,6 +281,9 @@ interface ApiRegistrationBody {
   name: string;
   baseUrl: string;
   authHeader?: string;
+  /** Name of a key in the API Keys vault. If set, takes precedence
+   *  over `authHeader` at call time. Resolved server-side. */
+  keyName?: string;
   docsLink?: string;
   docsFile?: { filename: string; content: string };
   samplePairs?: ApiSamplePair[];
@@ -330,6 +334,24 @@ async function registerApi(body: ApiRegistrationBody): Promise<ApiSourceRecord> 
   while (store.sources.some((s) => s.capability === capability)) {
     capability = `user.${base}_${n++}`;
   }
+  // If keyName is set, validate it and prefer over inline authHeader.
+  // The actual key VALUE is never persisted on the source record;
+  // it's looked up server-side at call time.
+  let resolvedKeyName: string | undefined;
+  if (body.keyName) {
+    const k = findKeyByName(body.keyName);
+    if (!k) {
+      throw new Error(
+        `Key "${body.keyName}" not found in the API Keys vault. ` +
+          `Add it under ＋ Connect data → Keys first, or leave keyName blank and use authHeader.`,
+      );
+    }
+    resolvedKeyName = k.name;
+  } else if (body.authHeader) {
+    // The user provided an inline auth header but no keyName. Persist
+    // it as the source's own authHeader. They can migrate to a key
+    // later by editing the source.
+  }
   const record: ApiSourceRecord = {
     kind: "api",
     id: `src_${randomUUID().slice(0, 8)}`,
@@ -338,6 +360,7 @@ async function registerApi(body: ApiRegistrationBody): Promise<ApiSourceRecord> 
     capability,
     baseUrl: body.baseUrl,
     ...(body.authHeader ? { authHeader: body.authHeader } : {}),
+    ...(resolvedKeyName ? { keyName: resolvedKeyName } : {}),
     endpoints: result.endpoints,
     ...(body.docsLink ? { docsLink: body.docsLink } : {}),
     ...(body.docsFile ? { docsFilePath: body.docsFile.filename } : {}),
@@ -429,12 +452,26 @@ function makeMiddleware(): (req: any, res: any, next: any) => Promise<void> {
           if (k.startsWith("p.")) params[k.slice(2)] = v;
         }
         const fresh = qs.get("fresh") === "1";
+        // Resolve the keyName to an actual auth header server-side, if any.
+        // The keyName is public; the resolved value never leaves the server.
+        let effectiveAuthHeader: string | null = null;
+        if (src.keyName) {
+          const resolved = resolveAuthHeader(src);
+          if (resolved === null) {
+            return jsonResponse(res, 502, {
+              error: `API source "${src.name}" references key "${src.keyName}" but that key no longer exists in the vault. Add it back under ＋ Connect data → Keys.`,
+            });
+          }
+          effectiveAuthHeader = resolved;
+        } else {
+          effectiveAuthHeader = src.authHeader ?? null;
+        }
         try {
           const { data, cached } = await callEndpoint(
             src,
             endpoint,
             params,
-            { fresh },
+            { fresh, effectiveAuthHeader },
           );
           return jsonResponse(res, 200, { data, cached });
         } catch (e) {

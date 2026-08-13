@@ -49,7 +49,7 @@ export async function callEndpoint(
   src: ApiSourceRecord,
   endpoint: ApiEndpoint,
   params: Record<string, unknown>,
-  options: CallOptions = {},
+  options: CallOptions & { effectiveAuthHeader?: string | null } = {},
 ): Promise<CallResult> {
   if (options.fresh) {
     // Skip the cache read but still write through so the next call hits cache.
@@ -58,7 +58,16 @@ export async function callEndpoint(
     const hit = cache.get(key);
     if (hit) return { data: hit.data, cached: true };
   }
-  const { url, init } = buildRequest(src, endpoint, params);
+  // If the caller (middleware) resolved the keyName → value at the
+  // call site, prefer that. Otherwise fall back to the source's
+  // inline authHeader. The key value never reaches the browser.
+  const effective = {
+    ...src,
+    authHeader: options.effectiveAuthHeader !== undefined
+      ? options.effectiveAuthHeader ?? undefined
+      : src.authHeader,
+  };
+  const { url, init } = buildRequest(effective, endpoint, params);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   let res: Response;

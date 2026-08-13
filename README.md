@@ -65,6 +65,10 @@ http://localhost:5173/#intent=Show%20me%20the%20business%20performed%20this%20mo
   pairs. The runtime calls an LLM to extract the endpoint list, then exposes
   each endpoint as its own `user.<api>.<endpoint>` capability. Calls run
   live, server-side, with the auth header stored server-side only.
+- **API Keys vault** — add named keys once, reference them from any number
+  of registered APIs. Keys live in `data/keys.json` (gitignored); the value
+  never reaches the browser. Usage count and last-used timestamp show in the
+  UI.
 - **Where-filter + chart aggregation** so per-day, per-product breakdowns work
   on hourly data without round-trips.
 - **Hash trick for headless / CI** — drive the LLM via the URL hash and capture
@@ -247,8 +251,12 @@ Click **＋ Connect data** → **API**. Fill in:
 
 - **API name** — appears as the capability prefix (`user.<name>.<endpoint>`)
 - **Base URL** — prepended to every path
-- **Authorization header** (optional) — stored server-side only, never sent to
-  the browser bundle, attached as `Authorization` on every call
+- **Authentication** (optional) — pick one of:
+  - **Use a saved key** — pick from the API Keys vault (recommended; the
+    value stays server-side)
+  - **Inline header** — paste a header value (e.g. `Bearer sk-…`); stored
+    on the source record, stripped from GET responses
+  - **No auth** — for open endpoints
 - **Documentation** (any combination, all optional):
   - **Docs link** — URL to docs (HTML is stripped to text, JSON / OpenAPI is
     passed through). 8s timeout, 1 MB cap.
@@ -280,6 +288,21 @@ anything else is treated as an empty array.
 - Outbound API calls run with a 15s timeout and 4 MB response cap.
 - Docs-link fetches run with 8s timeout and 1 MB cap, text/JSON/XML/YAML
   only.
+
+### API Keys vault
+
+Click **＋ Connect data** → **API keys**. Add named keys (e.g.
+`stripe-prod`, `openweather`) once and reference them by name from any
+number of registered APIs.
+
+- Storage: `data/keys.json` (gitignored, like `sources.json`)
+- The key value is sent verbatim as the `Authorization` header on every
+  call to APIs that reference it
+- The GET endpoints return name + created/last-used timestamps + usage
+  count, but NEVER the value
+- If you delete a key while APIs still reference it, those APIs fail
+  their next call with a clear "key not found" error pointing at the
+  missing key name
 
 For the full design rationale see
 [`docs/API_REGISTRATION.md`](./docs/API_REGISTRATION.md).

@@ -79,6 +79,7 @@ interface ApiSourceRecord {
   capability: string;          // "user.<sanitized>" — base name only
   baseUrl: string;
   authHeader?: string;         // server-side only — NEVER returned to the client
+  keyName?: string;            // resolves to actual value at call time, from the API Keys vault
   endpoints: ApiEndpoint[];
   /** Inputs the user supplied, retained for re-generation. */
   docsLink?: string;
@@ -197,6 +198,38 @@ and the UI tells the user to supply more samples.
 
 ---
 
+## API Keys vault
+
+Reusable named credentials for any number of registered APIs.
+
+- Storage: `data/keys.json` (gitignored, like `sources.json`)
+- Each key has: `id`, `name` (sanitized, unique), `value`, `createdAt`,
+  `lastUsedAt?`, `notes?`
+- `GET /api/keys` returns names + metadata + `usedBySources` count, but
+  NEVER the value
+- `POST /api/keys` creates; duplicate names return 409
+- `PATCH /api/keys/:id` updates value / name / notes
+- `DELETE /api/keys/:id` removes; any API source still referencing the
+  name fails its next call with `API source "<name>" references key
+  "<keyName>" but that key no longer exists in the vault.`
+
+**Resolution at call time** — when the middleware executes a call for a
+source that has `keyName`, it calls `resolveAuthHeader(src)` which:
+
+1. Looks up the key by name in the vault
+2. Records `lastUsedAt`
+3. Returns the value
+
+The value never lands on the source record, never in any response to
+the browser, and never in any log line.
+
+**Precedence** — if a source has both `keyName` and `authHeader`, the
+key wins. Inline `authHeader` is the fallback for sources that were
+registered before the keys vault existed, or for one-off cases where
+the user doesn't want a reusable key.
+
+---
+
 ## System-prompt integration
 
 The planner's system prompt already includes the capability catalog via
@@ -222,14 +255,15 @@ with:
 
 | Path | What |
 |---|---|
-| `src/data/sourcesRegistry.tsx` | Add `ApiSourceRecord`, `ApiEndpoint`, `ApiParam`, `ApiSamplePair` to the union. New `registerApi` action. |
-| `src/data/dynamicCapabilities.ts` | `apiSourceToCapabilities(src)` — one `CapabilityDescriptor` per endpoint. |
+| `src/data/sourcesRegistry.tsx` | Add `ApiSourceRecord`, `ApiEndpoint`, `ApiParam`, `ApiSamplePair` to the union. New `registerApi` action, `callApiEndpoint` helper, and the API Keys CRUD helpers. |
+| `src/data/dynamicCapabilities.ts` | `apiSourceToCapabilities(src)` — one `CapabilityDescriptor` per endpoint. `summarizeSource` notes `uses key: <name>` when the source references a vault key. |
 | `src/data/capabilityResolver.ts` | When a capability name starts with `user.*.*`, route to the live-call path. |
-| `vite/sourcesApi.ts` | New POST `/api/sources` body for `kind: "api"`. New GET `/api/sources/:id/call`. New POST `/api/sources/:id/extract` (LLM). New POST `/api/sources/:id/docs` (file upload). |
+| `vite/sourcesApi.ts` | New POST `/api/sources` body for `kind: "api"`. New GET `/api/sources/:id/call`. Validates `keyName` and passes through to the live-call middleware. |
 | `vite/apiExtractor.ts` (new) | The LLM extractor prompt + response handling. Reuses `parseLLMJson`. |
 | `vite/docsFetcher.ts` (new) | URL fetch with timeout, size cap, content-type sniffing. |
-| `vite/apiCaller.ts` (new) | Live-call execution with param substitution + in-memory cache. |
-| `src/app/DataSourceDialog.tsx` | Activate the API tab. Add the registration form. Add per-endpoint review/edit. |
+| `vite/apiCaller.ts` (new) | Live-call execution with param substitution + in-memory cache. Accepts an `effectiveAuthHeader` so the middleware can pass the resolved value. |
+| `vite/keysApi.ts` (new) | API Keys vault: `data/keys.json` storage, GET/POST/PATCH/DELETE `/api/keys`, `findKeyByName`, `recordKeyUsage`, `resolveAuthHeader`. |
+| `src/app/DataSourceDialog.tsx` | Three tabs: Upload, API, API keys. The API form has a 3-mode auth selector (no auth / saved key / inline header). The Keys tab is a full CRUD UI. |
 | `src/app/TopBar.tsx` | Show API source count. |
 
 ---
