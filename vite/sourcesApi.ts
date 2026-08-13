@@ -66,7 +66,16 @@ function readStore(): SourceStore {
   }
   try {
     const text = readFileSync(STORE_PATH, "utf8");
-    return JSON.parse(text) as SourceStore;
+    const parsed = JSON.parse(text) as Partial<SourceStore>;
+    // Older versions of this file (pre-API-keys-vault) may not have
+    // a `docsFiles` key, or may be missing `rows`. Default each
+    // missing collection to {} so callers can `delete store.docsFiles[id]`
+    // without hitting "Cannot convert undefined or null to object".
+    return {
+      sources: Array.isArray(parsed.sources) ? parsed.sources : [],
+      rows: parsed.rows ?? {},
+      docsFiles: parsed.docsFiles ?? {},
+    };
   } catch {
     // Corrupt store — start fresh rather than crash the dev server.
     return { sources: [], rows: {}, docsFiles: {} };
