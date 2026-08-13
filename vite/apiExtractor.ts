@@ -165,54 +165,134 @@ function coerceParam(raw: unknown): ApiParam | null {
 
 /**
  * Local extractor. Used when no LLM is configured — picks endpoints
- * from sample request/response pairs by URL pattern. Crude but
- * serviceable for the "no API key in this environment" fallback.
+ * from either an OpenAPI-style docs blob, sample request/response
+ * pairs, or both. Crude but serviceable for the "no API key in
+ * this environment" fallback.
+ *
+ * Strategy:
+ *   1. If docsText parses as JSON and looks like an OpenAPI/Swagger
+ *      spec (has `paths` keyed by URL path), walk `paths.<path>.<method>`
+ *      and synthesize an endpoint per (path, method).
+ *   2. If samplePairs are supplied, derive one endpoint per pair
+ *      from its path.
+ *   3. Both can be combined.
  */
 function localExtract(input: ExtractorInput): ExtractorResult {
   const endpoints: ApiEndpoint[] = [];
-  if (!input.samplePairs) {
-    return { endpoints, inputs: { docsChars: 0, sampleChars: 0 } };
-  }
-  for (let i = 0; i < input.samplePairs.length; i++) {
-    const sp = input.samplePairs[i]!;
-    const name = pathToName(sp.path, i);
-    if (!name) continue;
-    let returnsDescription = "A JSON response.";
+  // OpenAPI-style walk.
+  if (input.docsText) {
     try {
-      const parsed = JSON.parse(sp.responseBody);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const keys = Object.keys(parsed).slice(0, 6);
-        if (keys.length > 0) {
-          returnsDescription = `Object with fields: ${keys.join(", ")}.`;
+      const doc = JSON.parse(input.docsText);
+      if (doc && typeof doc === "object" && doc.paths && typeof doc.paths === "object") {
+        let idx = 0;
+        for (const [rawPath, rawOps] of Object.entries(doc.paths as Record<string, unknown>)) {
+          if (!rawOps || typeof rawOps !== "object") continue;
+          for (const [rawMethod, rawOp] of Object.entries(rawOps as Record<string, unknown>)) {
+            const method = rawMethod.toUpperCase();
+            if (method !== "GET" && method !== "POST") continue;
+            const op = (rawOp ?? {}) as {
+              summary?: string;
+              description?: string;
+              parameters?: Array<{
+                name?: string;
+                in?: string;
+                required?: boolean;
+                schema?: { type?: string };
+                description?: string;
+              }>;
+              responses?: Record<string, unknown>;
+            };
+            const name = pathToName(rawPath, idx);
+            if (!name) continue;
+            const params: ApiParam[] = [];
+            const pathParams: string[] = [];
+            for (const p of op.parameters ?? []) {
+              if (!p.name) continue;
+              const pIn = p.in;
+              if (pIn !== "path" && pIn !== "query" && pIn !== "body" && pIn !== "header") continue;
+              if (pIn === "path") pathParams.push(p.name);
+              params.push({
+                name: p.name,
+                type:
+                  p.schema?.type === "integer" || p.schema?.type === "number"
+                    ? "number"
+                    : p.schema?.type === "boolean"
+                      ? "boolean"
+                      : "string",
+                required: p.required === true,
+                description: p.description,
+                in: pIn,
+              });
+            }
+            const returnsDescription =
+              typeof op.summary === "string"
+                ? op.summary
+                : typeof op.description === "string"
+                  ? op.description.slice(0, 200)
+                  : `A JSON response for ${method} ${rawPath}.`;
+            endpoints.push({
+              id: `ep_${idx++}_local`,
+              name,
+              description: returnsDescription,
+              method,
+              path: rawPath,
+              params,
+              returnsDescription,
+            });
+            // Each (path, method) is a separate endpoint; don't dedupe
+            // because the same path with GET vs POST is a real pair.
+          }
         }
-      } else if (Array.isArray(parsed)) {
-        returnsDescription = "An array of records.";
       }
     } catch {
-      // ignore
+      // Not JSON, or not OpenAPI-shaped — fall through to sample pairs.
     }
-    const params: ApiParam[] = pathParamsFromUrl(sp.path).map((p) => ({
-      name: p,
-      type: "string",
-      required: true,
-      in: "path",
-    }));
-    let returnsSample: unknown;
-    try {
-      returnsSample = JSON.parse(sp.responseBody);
-    } catch {
-      // ignore
+  }
+  // Sample-pair walk.
+  if (input.samplePairs) {
+    for (let i = 0; i < input.samplePairs.length; i++) {
+      const sp = input.samplePairs[i]!;
+      // Skip if the sample path is already covered by an OpenAPI walk.
+      if (endpoints.some((e) => e.method === sp.method && e.path === sp.path)) continue;
+      const name = pathToName(sp.path, i);
+      if (!name) continue;
+      let returnsDescription = "A JSON response.";
+      try {
+        const parsed = JSON.parse(sp.responseBody);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const keys = Object.keys(parsed).slice(0, 6);
+          if (keys.length > 0) {
+            returnsDescription = `Object with fields: ${keys.join(", ")}.`;
+          }
+        } else if (Array.isArray(parsed)) {
+          returnsDescription = "An array of records.";
+        }
+      } catch {
+        // ignore
+      }
+      const params: ApiParam[] = pathParamsFromUrl(sp.path).map((p) => ({
+        name: p,
+        type: "string",
+        required: true,
+        in: "path",
+      }));
+      let returnsSample: unknown;
+      try {
+        returnsSample = JSON.parse(sp.responseBody);
+      } catch {
+        // ignore
+      }
+      endpoints.push({
+        id: `ep_${i}_local_sample`,
+        name,
+        description: `${sp.method} ${sp.path}`,
+        method: sp.method,
+        path: sp.path,
+        params,
+        returnsDescription,
+        ...(returnsSample !== undefined ? { returnsSample } : {}),
+      });
     }
-    endpoints.push({
-      id: `ep_${i}_local`,
-      name,
-      description: `${sp.method} ${sp.path}`,
-      method: sp.method,
-      path: sp.path,
-      params,
-      returnsDescription,
-      ...(returnsSample !== undefined ? { returnsSample } : {}),
-    });
   }
   return {
     endpoints,

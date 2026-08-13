@@ -67,8 +67,8 @@ try {
     if (health.status !== 200) throw new Error(`status=${health.status}`);
     if (!Array.isArray(health.data.endpoints)) throw new Error("no endpoints");
   });
-  check("sample API advertises 8 endpoints", () => {
-    if (health.data.endpoints.length !== 8) {
+  check("sample API advertises 10 endpoints", () => {
+    if (health.data.endpoints.length !== 10) {
       throw new Error(`got ${health.data.endpoints.length}`);
     }
   });
@@ -84,7 +84,58 @@ try {
   });
   keyId = key.data.id;
 
-  console.log("\nAPI registration with keyName:");
+  console.log("\nDocs link fetches:");
+  const openapi = await getJson(`${SAMPLE}/openapi.json`);
+  check("sample API serves /openapi.json with 8 paths", () => {
+    if (openapi.status !== 200) throw new Error(`status=${openapi.status}`);
+    if (Object.keys(openapi.data.paths || {}).length !== 8) {
+      throw new Error(`got ${Object.keys(openapi.data.paths || {}).length} paths`);
+    }
+  });
+  const md = await getJson(`${SAMPLE}/docs`);
+  check("sample API serves /docs (markdown, 3-4KB)", () => {
+    if (md.status !== 200) throw new Error(`status=${md.status}`);
+    // The text endpoint returns Markdown, but the test fetcher
+    // tries to parse it as JSON — we just check size and content.
+  });
+  // Verify the docs page is non-empty markdown by fetching raw text.
+  const mdRaw = await fetch(`${SAMPLE}/docs`).then((r) => r.text());
+  check("/docs returns non-trivial markdown", () => {
+    if (mdRaw.length < 1000) throw new Error(`too short: ${mdRaw.length} bytes`);
+    if (!mdRaw.includes("/v1/products") || !mdRaw.includes("### ")) {
+      throw new Error("missing expected sections");
+    }
+  });
+
+  console.log("\nAPI registration with keyName + docs link (no samples):");
+  // The cleanest docs-link test: give the backend a docs URL and let
+  // it fetch the OpenAPI spec itself, then ask the LLM to extract
+  // endpoints. No sample pairs supplied.
+  const regFromDocs = await postJson(`${APP}/api/sources`, {
+    kind: "api",
+    name: `samplestore_docs_${Date.now()}`,
+    baseUrl: SAMPLE,
+    keyName: KEY_NAME,
+    docsLink: `${SAMPLE}/openapi.json`,
+  });
+  check("POST /api/sources with docsLink returns 201", () => {
+    if (regFromDocs.status !== 201) {
+      throw new Error(`status=${regFromDocs.status} body=${JSON.stringify(regFromDocs.data).slice(0, 300)}`);
+    }
+  });
+  check("docs-link registration extracts multiple endpoints", () => {
+    if (!Array.isArray(regFromDocs.data.endpoints)) throw new Error("no endpoints");
+    if (regFromDocs.data.endpoints.length < 3) {
+      throw new Error(`only got ${regFromDocs.data.endpoints.length} endpoints`);
+    }
+  });
+  check("docs-link registration retains the docsLink", () => {
+    if (regFromDocs.data.docsLink !== `${SAMPLE}/openapi.json`) {
+      throw new Error(`docsLink=${regFromDocs.data.docsLink}`);
+    }
+  });
+  await delJson(`${APP}/api/sources/${regFromDocs.data.id}`);
+
   const reg = await postJson(`${APP}/api/sources`, {
     kind: "api",
     name: SRC_NAME,

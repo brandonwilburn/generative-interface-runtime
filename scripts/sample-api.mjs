@@ -59,6 +59,11 @@
  *                                    expects "Authorization: Bearer
  *                                    demo-key-12345"
  *   GET /health                      liveness check (no auth)
+ *   GET /openapi.json                OpenAPI 3.0 spec (no auth)
+ *                                    — paste the URL into the
+ *                                    BYOAPI docs-link field
+ *   GET /docs                        Markdown documentation (no auth)
+ *                                    — same content, alt format
  *
  * ───────────────────────────────────────────────────────────────
  * Configuration
@@ -80,6 +85,436 @@ import { URL } from "node:url";
 const PORT = parseInt(process.env.PORT ?? "49200", 10);
 const API_KEY = process.env.SAMPLE_API_KEY ?? "Bearer demo-key-12345";
 const HOST = "127.0.0.1";
+
+// ───────── sample docs (served at /openapi.json and /docs) ─────────
+// The same endpoints are described in two formats: an OpenAPI 3.0
+// spec and a Markdown document. The BYOAPI flow can ingest either:
+//   - paste the URL http://localhost:49200/openapi.json into the
+//     "Docs link" field, OR
+//   - paste the URL http://localhost:49200/docs, OR
+//   - upload samples/sample-api-docs.md as a "docs file".
+const OPENAPI_SPEC = {
+  openapi: "3.0.0",
+  info: {
+    title: "SampleStore API",
+    description:
+      "A small merchant/ecommerce API used to demonstrate the BYOAPI flow. All data is generated at startup and is identical across runs (deterministic PRNG).",
+    version: "1.0.0",
+  },
+  servers: [
+    { url: "http://localhost:49200", description: "Local dev" },
+  ],
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: "http",
+        scheme: "bearer",
+        description: "Static demo key. The value is `Bearer demo-key-12345`.",
+      },
+    },
+    schemas: {
+      Product: {
+        type: "object",
+        properties: {
+          id: { type: "string", example: "p_001" },
+          name: { type: "string", example: "Smoked plate" },
+          category: { type: "string", enum: ["mains", "sides", "drinks", "dessert", "merch"] },
+          price: { type: "number", example: 32.49 },
+          inStock: { type: "integer", example: 237 },
+        },
+      },
+      Order: {
+        type: "object",
+        properties: {
+          id: { type: "string", example: "o_2026-08-13_01" },
+          date: { type: "string", format: "date", example: "2026-08-13" },
+          customerId: { type: "string", example: "c_048" },
+          customerName: { type: "string", example: "Iris Kim" },
+          total: { type: "number", example: 48.20 },
+          status: { type: "string", enum: ["paid", "refunded", "pending"] },
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                productId: { type: "string" },
+                name: { type: "string" },
+                price: { type: "number" },
+                qty: { type: "integer" },
+              },
+            },
+          },
+        },
+      },
+      Customer: {
+        type: "object",
+        properties: {
+          id: { type: "string", example: "c_017" },
+          name: { type: "string", example: "Hana Okafor" },
+          email: { type: "string", example: "hana.okafor@example.com" },
+          segment: { type: "string", enum: ["vip", "regular", "new", "lapsed"] },
+          lifetimeSpend: { type: "number", example: 4320 },
+          orders: { type: "integer", example: 28 },
+          lastOrder: { type: "string", format: "date" },
+        },
+      },
+      RevenuePoint: {
+        type: "object",
+        properties: {
+          date: { type: "string", format: "date" },
+          orders: { type: "integer" },
+          paidOrders: { type: "integer" },
+          revenue: { type: "number" },
+        },
+      },
+      Account: {
+        type: "object",
+        properties: {
+          id: { type: "string", example: "u_001" },
+          name: { type: "string", example: "Demo Account" },
+          role: { type: "string", example: "owner" },
+          plan: { type: "string", example: "pro" },
+          email: { type: "string", example: "demo@example.com" },
+          createdAt: { type: "string", format: "date-time" },
+        },
+      },
+    },
+  },
+  paths: {
+    "/v1/products": {
+      get: {
+        summary: "List all products",
+        description: "Returns every product in the catalog with its current stock level.",
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    products: { type: "array", items: { $ref: "#/components/schemas/Product" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/v1/products/{id}": {
+      get: {
+        summary: "Get a single product",
+        description: "Returns one product by id, plus units sold and revenue across all paid orders.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            description: "Product id, e.g. `p_001`.",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  allOf: [
+                    { $ref: "#/components/schemas/Product" },
+                    {
+                      type: "object",
+                      properties: {
+                        unitsSold: { type: "integer" },
+                        revenue: { type: "number" },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          "404": { description: "Product not found" },
+        },
+      },
+    },
+    "/v1/orders": {
+      get: {
+        summary: "List recent orders",
+        parameters: [
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            schema: { type: "integer", default: 20, maximum: 100 },
+            description: "Maximum number of orders to return.",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    orders: { type: "array", items: { $ref: "#/components/schemas/Order" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/v1/orders/recent": {
+      get: {
+        summary: "Get the 20 most recent orders",
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    orders: { type: "array", items: { $ref: "#/components/schemas/Order" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/v1/customers/top": {
+      get: {
+        summary: "Top customers by lifetime spend",
+        parameters: [
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            schema: { type: "integer", default: 10, maximum: 50 },
+            description: "Maximum number of customers to return.",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    customers: { type: "array", items: { $ref: "#/components/schemas/Customer" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/v1/revenue/series": {
+      get: {
+        summary: "Daily revenue series",
+        description: "Returns one entry per day for the requested window, oldest first.",
+        parameters: [
+          {
+            name: "days",
+            in: "query",
+            required: false,
+            schema: { type: "integer", default: 30, maximum: 90 },
+            description: "Number of days to include.",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    days: { type: "integer" },
+                    series: { type: "array", items: { $ref: "#/components/schemas/RevenuePoint" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/v1/inventory/low-stock": {
+      get: {
+        summary: "Products below a stock threshold",
+        parameters: [
+          {
+            name: "threshold",
+            in: "query",
+            required: false,
+            schema: { type: "integer", default: 20 },
+            description: "Products with `inStock` below this value are returned.",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    threshold: { type: "integer" },
+                    count: { type: "integer" },
+                    products: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          id: { type: "string" },
+                          name: { type: "string" },
+                          category: { type: "string" },
+                          inStock: { type: "integer" },
+                          threshold: { type: "integer" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/v1/account/me": {
+      get: {
+        summary: "Current account details",
+        description: "Returns the authenticated account. Requires the `Bearer demo-key-12345` static demo key.",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Account" },
+              },
+            },
+          },
+          "401": { description: "Missing or invalid Authorization header" },
+        },
+      },
+    },
+  },
+};
+
+const MARKDOWN_DOCS = `# SampleStore API
+
+A small merchant/ecommerce API used to demonstrate the BYOAPI flow.
+All data is generated at startup; the same numbers appear on every run.
+
+Base URL: \`http://localhost:49200\`
+
+## Authentication
+
+The \`/v1/account/me\` endpoint requires a static demo key:
+
+\`\`\`
+Authorization: Bearer demo-key-12345
+\`\`\`
+
+Add it under ＋ Connect data → API keys as a named key (e.g.
+\`sample_demo\`), then reference the key name when registering the
+API source.
+
+## Endpoints
+
+### GET /v1/products
+List every product in the catalog with its current stock level.
+
+**Response 200**
+\`\`\`json
+{ "products": [{ "id": "p_001", "name": "Smoked plate", "category": "mains", "price": 32.49, "inStock": 237 }] }
+\`\`\`
+
+### GET /v1/products/{id}
+Returns one product plus its total units sold and revenue across
+all paid orders.
+
+| Param | In   | Type   | Required | Description                |
+|-------|------|--------|----------|----------------------------|
+| id    | path | string | yes      | Product id, e.g. \`p_001\` |
+
+**Response 200** — product + \`unitsSold\` (int) + \`revenue\` (number).
+**Response 404** — \`{ "error": "not_found", "path": "..." }\`.
+
+### GET /v1/orders
+Recent orders.
+
+| Param  | In    | Type | Required | Default | Description                  |
+|--------|-------|------|----------|---------|------------------------------|
+| limit  | query | int  | no       | 20      | Max orders to return (≤ 100) |
+
+**Response 200** — \`{ "orders": [Order, ...] }\`.
+
+### GET /v1/orders/recent
+The 20 most recent orders. Same shape as \`/v1/orders\`.
+
+### GET /v1/customers/top
+Top customers by lifetime spend, sorted descending.
+
+| Param | In    | Type | Required | Default | Description                |
+|-------|-------|------|----------|---------|----------------------------|
+| limit | query | int  | no       | 10      | Max customers (≤ 50)      |
+
+**Response 200** — \`{ "customers": [Customer, ...] }\`.
+
+### GET /v1/revenue/series
+Daily revenue series. Returns one entry per day for the requested
+window, oldest first.
+
+| Param | In    | Type | Required | Default | Description                |
+|-------|-------|------|----------|---------|----------------------------|
+| days  | query | int  | no       | 30      | Window length (≤ 90)       |
+
+**Response 200** — \`{ "days": 30, "series": [{ "date", "orders", "paidOrders", "revenue" }] }\`.
+
+### GET /v1/inventory/low-stock
+Products whose \`inStock\` is below the given threshold.
+
+| Param      | In    | Type | Required | Default | Description                  |
+|------------|-------|------|----------|---------|------------------------------|
+| threshold  | query | int  | no       | 20      | Return if \`inStock < N\`    |
+
+**Response 200** — \`{ "threshold", "count", "products": [...] }\`.
+
+### GET /v1/account/me  *(auth required)*
+Returns the authenticated account. Requires \`Authorization: Bearer demo-key-12345\`.
+
+**Response 200** — \`{ "id", "name", "role", "plan", "email", "createdAt" }\`.
+**Response 401** — \`{ "error": "unauthorized" }\`.
+
+## Schemas
+
+### Product
+\`{ id: string, name: string, category: "mains"|"sides"|"drinks"|"dessert"|"merch", price: number, inStock: int }\`
+
+### Order
+\`{ id, date (YYYY-MM-DD), customerId, customerName, items: [{ productId, name, price, qty }], total: number, status: "paid"|"refunded"|"pending" }\`
+
+### Customer
+\`{ id, name, email, segment: "vip"|"regular"|"new"|"lapsed", lifetimeSpend: number, orders: int, lastOrder (YYYY-MM-DD) }\`
+
+### RevenuePoint
+\`{ date, orders: int, paidOrders: int, revenue: number }\`
+
+### Account
+\`{ id, name, role, plan, email, createdAt (ISO 8601) }\`
+`;
 
 // ───────── deterministic RNG (mulberry32) ─────────
 function rng(seed) {
@@ -250,8 +685,32 @@ const server = http.createServer((req, res) => {
         "GET /v1/revenue/series?days=30",
         "GET /v1/inventory/low-stock?threshold=20",
         "GET /v1/account/me  (Authorization: Bearer demo-key-12345)",
+        "GET /openapi.json  (paste URL into the BYOAPI docs-link field)",
+        "GET /docs          (Markdown alt of /openapi.json)",
       ],
     });
+  }
+
+  // OpenAPI spec — paste this URL into the BYOAPI docs-link field.
+  if (path === "/openapi.json" && method === "GET") {
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify(OPENAPI_SPEC, null, 2));
+    log(method, path, 200, started);
+    return;
+  }
+
+  // Markdown docs — same content as the spec, in a human format.
+  if (path === "/docs" && method === "GET") {
+    res.writeHead(200, {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(MARKDOWN_DOCS);
+    log(method, path, 200, started);
+    return;
   }
 
   // Auth gate for /v1/account/me.
