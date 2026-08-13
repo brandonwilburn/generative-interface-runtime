@@ -192,6 +192,28 @@ AGGREGATION & FILTERS — THIS IS THE THIRD MOST IMPORTANT RULE:
   Use where to scope a single chart/table; use params only when the
   capability description tells you to.
 
+PER-DAY BREAKDOWNS — when the user asks for "by day", "per day", "each day",
+"for Monday/Tuesday/..." or anything that implies a slice per day-of-week:
+- DO NOT just emit one chart/table over the whole week. The rows for Mon
+  and Sun will be merged into a single "day" axis and the result will
+  look like a single weekly series, not a per-day comparison.
+- Instead, emit one section per day, each with data.where = { day: "<abbrev>" }
+  scoping it. The hourly data uses "Mon", "Tue", "Wed", "Thu", "Fri",
+  "Sat", "Sun" as the day field. For per-day-per-product breakdowns, set
+  x: "product" inside each per-day section.
+- Concrete pattern for "product mix for each day of the week":
+
+  children: [
+    { "type": "section", "title": "Monday",   "children": [{ "type": "chart", "kind": "pie", "data": { "capability": "user.hourly_product_mix", "params": {}, "where": { "day": "Mon" } }, "x": "product", "y": "revenue", "yFormat": "currency" }] },
+    { "type": "section", "title": "Tuesday",  "children": [{ "type": "chart", "kind": "pie", "data": { "capability": "user.hourly_product_mix", "params": {}, "where": { "day": "Tue" } }, "x": "product", "y": "revenue", "yFormat": "currency" }] },
+    ... (one section per day)
+  ]
+
+  The same shape works for "by hour" (use where: { day: "Sat", hour: 12 }),
+  "by category" (where: { category: "drinks" }), etc. The point is: the
+  chart engine aggregates by x, but a per-day chart needs a where filter
+  or it will mix every day together.
+
 Component quick reference (all fields shown above; every type has a 'type' literal):
 - metricCard: { type:"metricCard", label, valueRef:{capability,params} OR value:literal, format, emphasis?, delta?, caption? }
 - chart:       { type:"chart", kind:"line"|"bar"|"area"|"pie", title, data:{capability,params,where?}, x, y, yFormat? }
@@ -244,22 +266,38 @@ function stripCodeFence(text: string): string {
   const fence = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
   if (fence) t = fence[1]!;
   // Remove <think>...</think> blocks (MiniMax reasoning tokens).
+  // Use the non-greedy form so multiple think blocks are all stripped.
   t = t.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-  return extractFirstJson(t);
+  return t;
 }
 
 /**
- * Returns the first balanced JSON object in `text`, or `text` unchanged
- * if no `{` is found. Walks the string tracking nesting depth and
- * skipping over content inside string literals (which can contain
- * unbalanced braces). If the walker never finds a matching close brace,
- * it returns the substring from the first `{` to end-of-string as a
- * last-ditch attempt — the JSON.parse that follows will produce a
- * clearer error than "no JSON at all".
+ * Returns the first balanced JSON object in `text`. Walks the string
+ * tracking nesting depth and skipping over content inside string literals
+ * (which can contain unbalanced braces). If the walker never finds a
+ * matching close brace, returns the substring from the first `{` to
+ * end-of-string so the JSON.parse that follows produces a meaningful
+ * error instead of "no JSON at all".
  */
-function extractFirstJson(text: string): string {
+function extractFirstJsonObject(text: string): string {
   const start = text.indexOf("{");
-  if (start === -1) return text;
+  if (start === -1) return "";
+  return walkBalanced(text, start, "{", "}");
+}
+
+/**
+ * Returns the first balanced JSON array in `text`. Same walker as
+ * extractFirstJsonObject but for `[` `]`. Some chat-completions servers
+ * (and some model responses) wrap the payload as `[ {...} ]`; we unwrap
+ * the array by taking its first element.
+ */
+function extractFirstJsonArray(text: string): string {
+  const start = text.indexOf("[");
+  if (start === -1) return "";
+  return walkBalanced(text, start, "[", "]");
+}
+
+function walkBalanced(text: string, start: number, open: string, close: string): string {
   let depth = 0;
   let inString = false;
   let escape = false;
@@ -272,13 +310,63 @@ function extractFirstJson(text: string): string {
       continue;
     }
     if (c === '"') inString = true;
-    else if (c === "{") depth++;
-    else if (c === "}") {
+    else if (c === open) depth++;
+    else if (c === close) {
       depth--;
       if (depth === 0) return text.slice(start, i + 1);
     }
   }
   return text.slice(start);
+}
+
+/**
+ * Tries several extraction strategies to pull a parseable JSON value
+ * from an LLM response. Returns the parsed value. The order of
+ * strategies matters — start with the strictest (the balanced-object
+ * walker), fall back to looser heuristics.
+ *
+ * Throws if nothing parses. The error message includes a preview of
+ * the original text so the failure mode is obvious in the UI.
+ */
+function parseLLMJson(text: string): unknown {
+  const candidates: string[] = [];
+
+  // 1. Strict walker — first balanced `{...}` from the cleaned text.
+  const obj = extractFirstJsonObject(text);
+  if (obj) candidates.push(obj);
+
+  // 2. If the response was an array wrapper like `[ {...} ]`,
+  //    extract the array and try its first element.
+  const arr = extractFirstJsonArray(text);
+  if (arr) {
+    try {
+      const parsed = JSON.parse(arr);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        candidates.push(JSON.stringify(parsed));
+      }
+    } catch {
+      // ignore — fall through
+    }
+  }
+
+  // 3. Loose greedy match: longest `{...}` region. Catches models that
+  //    emit extra braces in strings or comments that confuse the walker.
+  const greedy = text.match(/\{[\s\S]*\}/);
+  if (greedy) candidates.push(greedy[0]);
+
+  for (const c of candidates) {
+    try {
+      return JSON.parse(c);
+    } catch {
+      // try next
+    }
+  }
+
+  const preview = text.length > 240 ? text.slice(0, 240) + "..." : text;
+  throw new Error(
+    `Could not extract a parseable JSON value from the LLM response. ` +
+    `First ${Math.min(240, text.length)} chars: ${preview.replace(/\n/g, "\\n")}`,
+  );
 }
 
 export class OpenAIPlanner implements Planner {
@@ -313,10 +401,12 @@ export class OpenAIPlanner implements Planner {
         schema,
       });
 
+    const extract = (raw: string) => parseLLMJson(stripCodeFence(raw));
+
     // Attempt 1.
     let content = await callOnce(buildUserPrompt(intent, ctx.currentSpec));
 
-    let parsed = JSON.parse(stripCodeFence(content));
+    let parsed = extract(content);
     let result = DashboardSpec.safeParse(parsed);
     if (!result.success) {
       // Attempt 2 — append the Zod error so the model can self-correct.
@@ -324,7 +414,7 @@ export class OpenAIPlanner implements Planner {
         buildUserPrompt(intent, ctx.currentSpec) +
         `\n\nYour previous response failed schema validation:\n${result.error.message}\n\nReturn a corrected JSON object that satisfies the schema.`;
       content = await callOnce(retryPrompt);
-      parsed = JSON.parse(stripCodeFence(content));
+      parsed = extract(content);
       result = DashboardSpec.safeParse(parsed);
       if (!result.success) {
         throw new Error("LLM output failed schema validation after retry: " + result.error.message);

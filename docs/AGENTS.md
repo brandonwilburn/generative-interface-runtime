@@ -55,6 +55,7 @@ just like the built-ins.
 | `scripts/smoke.ts` | E2E pipeline test (MockPlanner) | Adding a smoke case |
 | `scripts/test-table-alias.mjs` | Verifies `lookupKey` aliasing | When aliasing changes |
 | `scripts/test-where-aggregate.mjs` | Verifies `where` + chart aggregation | When filtering/aggregation changes |
+| `scripts/test-json-parse.mjs` | Verifies the LLM JSON extractor (fences, think blocks, trailing prose, array wrappers) | When the LLM output parser changes |
 | `samples/hourly_product_mix.csv` | 336-row test fixture | Re-generate via `node scripts/gen-hourly-mix.mjs` |
 
 ## Three mental models
@@ -158,6 +159,12 @@ npm run smoke
 
 # Run the BYOD end-to-end test (dev server must be up)
 node scripts/test-where-aggregate.mjs
+
+# Run the LLM JSON extractor tests (no dev server needed)
+node scripts/test-json-parse.mjs
+
+# Run the table field-name alias tests (no dev server needed)
+node scripts/test-table-alias.mjs
 
 # Regenerate the sample CSV
 node scripts/gen-hourly-mix.mjs
