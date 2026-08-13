@@ -23,7 +23,7 @@ import type { ApiEndpoint, ApiParam, ApiSamplePair } from "../src/data/sourcesRe
 const EXTRACTOR_SYSTEM_PROMPT = `You are an API documentation analyzer. Given documentation text and/or sample request/response pairs, extract a STRUCTURED list of API endpoints.
 
 Each endpoint:
-- name: snake_case identifier (e.g. "getCurrent", "listInvoices"). Lowercase letters, digits, underscores. No dots.
+- name: snake_case identifier (e.g. "get_current", "list_invoices"). Lowercase letters, digits, underscores. No dots.
 - description: one sentence describing what the endpoint does. Plain English.
 - method: "GET" or "POST". Match the docs.
 - path: URL path with {param} placeholders for variable segments (e.g. "/v1/weather/{city}"). NO query string.
@@ -304,17 +304,24 @@ function localExtract(input: ExtractorInput): ExtractorResult {
 }
 
 function pathToName(path: string, idx: number): string {
-  // /v1/weather/London -> weatherLondon
-  const segments = path.split("/").filter((s) => s.length > 0 && !s.startsWith("{"));
-  if (segments.length === 0) return `endpoint${idx + 1}`;
-  // Drop the version segment if it's at the start.
+  // Convert "/v1/orders/recent" → "orders_recent" (snake_case).
+  // Drop the version segment if it's at the start. Drop path params
+  // (anything in {curly}) and any non-identifier chars. Then join
+  // remaining segments with underscores.
+  const segments = path
+    .split("/")
+    .filter((s) => s.length > 0)
+    .map((s) => s.replace(/[{}]/g, "")) // strip braces from path params
+    .filter((s) => s.length > 0);
+  if (segments.length === 0) return `endpoint_${idx + 1}`;
   if (/^v\d+$/i.test(segments[0]!)) segments.shift();
-  return segments
-    .slice(-2)
-    .map((s) => s.replace(/[^a-zA-Z0-9]+/g, ""))
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join("")
-    .toLowerCase() || `endpoint${idx + 1}`;
+  // Snake-case join. /v1/orders/recent → "orders_recent".
+  const joined = segments
+    .map((s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""))
+    .filter((s) => s.length > 0)
+    .join("_");
+  if (!joined) return `endpoint_${idx + 1}`;
+  return joined.slice(0, 48);
 }
 
 function pathParamsFromUrl(path: string): string[] {
