@@ -1,0 +1,159 @@
+/* ============================================================
+   Design tokens — semantic, never raw values in the DSL.
+   Reference these by name in the component registry and
+   components; never write a hex or px value in component CSS.
+   ============================================================ */
+
+:root {
+  /* ---------- color: surface ---------- */
+  --color-bg-canvas: #f7f8fa;
+  --color-bg-surface: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-bg-subtle: #f1f3f7;
+  --color-bg-inset: #eceff5;
+  --color-bg-overlay: rgba(11, 13, 18, 0.4);
+
+  /* ---------- color: foreground ---------- */
+  --color-fg-primary: #0b0d12;
+  --color-fg-secondary: #4b5263;
+  --color-fg-muted: #8a91a0;
+  --color-fg-disabled: #b6bcc8;
+  --color-fg-inverse: #ffffff;
+
+  /* ---------- color: border ---------- */
+  --color-border-subtle: #e6e9ef;
+  --color-border-default: #d4d9e2;
+  --color-border-strong: #b6bcc8;
+  --color-border-focus: #2c2fde;
+
+  /* ---------- color: accent ---------- */
+  --color-accent-fg: #2c2fde;
+  --color-accent-fg-hover: #2024b8;
+  --color-accent-bg: #ecedfd;
+  --color-accent-bg-strong: #d9dafb;
+  --color-accent-border: #b6b8f3;
+
+  /* ---------- color: status ---------- */
+  --color-positive: #047a4a;
+  --color-positive-bg: #e3f6ec;
+  --color-positive-border: #b6e6cd;
+  --color-warning: #92580a;
+  --color-warning-bg: #fdf1d9;
+  --color-warning-border: #f4d99a;
+  --color-negative: #b3261e;
+  --color-negative-bg: #fce8e7;
+  --color-negative-border: #f1bcb8;
+  --color-info: #1f4f8b;
+  --color-info-bg: #e3eefb;
+  --color-info-border: #b8d3f1;
+
+  /* ---------- color: chart palette (categorical) ---------- */
+  --color-chart-1: #2c2fde;
+  --color-chart-2: #0a8a64;
+  --color-chart-3: #c2410c;
+  --color-chart-4: #9333ea;
+  --color-chart-5: #b45309;
+  --color-chart-6: #be185d;
+
+  /* ---------- spacing (4pt scale) ---------- */
+  --space-0: 0;
+  --space-px: 1px;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --space-10: 64px;
+  --space-11: 80px;
+  --space-12: 96px;
+
+  /* ---------- radius ---------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+
+  /* ---------- type ---------- */
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 36px;
+  --text-5xl: 48px;
+  --text-6xl: 60px;
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  --tracking-tighter: -0.04em;
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* ---------- elevation ---------- */
+  --shadow-1:
+    0 1px 2px rgba(11, 13, 18, 0.04),
+    0 1px 1px rgba(11, 13, 18, 0.03);
+  --shadow-2:
+    0 4px 8px -2px rgba(11, 13, 18, 0.06),
+    0 2px 4px -2px rgba(11, 13, 18, 0.04);
+  --shadow-3:
+    0 12px 24px -8px rgba(11, 13, 18, 0.10),
+    0 4px 8px -4px rgba(11, 13, 18, 0.05);
+  --shadow-focus: 0 0 0 3px rgba(44, 47, 222, 0.25);
+
+  /* ---------- motion ---------- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-med: 200ms;
+  --dur-slow: 320ms;
+  --dur-slower: 480ms;
+
+  /* ---------- layout ---------- */
+  --layout-max-width: 1280px;
+  --layout-gutter: 32px;
+  --layout-gutter-mobile: 16px;
+  --layout-rail-width: 320px;
+
+  /* ---------- z-index ---------- */
+  --z-base: 0;
+  --z-raised: 1;
+  --z-sticky: 10;
+  --z-overlay: 100;
+  --z-modal: 1000;
+  --z-toast: 10000;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Reserved for future dark mode. Light is the only theme for v1;
+     tokens stay light-only so generated UI has predictable contrast. */
+}

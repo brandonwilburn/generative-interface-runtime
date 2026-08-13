@@ -1,0 +1,55 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# dev artifacts
+.npm-install.log
+.npm-install.log.*
+.dev.log
+.dev.log.*
+*.archive
+*.archive2
+*.archive3
+*.bak
+tsconfig.tsbuildinfo
+tsconfig.*.tsbuildinfo
+archive/
+
+# env
+.env
+.env.local
+.env.*.local
+.env.local.*
+
+# user-uploaded data sources (BYOD feature)
+data/
+
+# build output
+dist/
+dist-ssr/
+
+# screenshots (kept locally; committed screenshots go under docs/)
+screenshots/
+
+# OS / editor
+.DS_Store
+Thumbs.db
