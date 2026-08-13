@@ -67,8 +67,8 @@ try {
     if (health.status !== 200) throw new Error(`status=${health.status}`);
     if (!Array.isArray(health.data.endpoints)) throw new Error("no endpoints");
   });
-  check("sample API advertises 10 endpoints", () => {
-    if (health.data.endpoints.length !== 10) {
+  check("sample API advertises 13 endpoints", () => {
+    if (health.data.endpoints.length !== 13) {
       throw new Error(`got ${health.data.endpoints.length}`);
     }
   });
@@ -86,9 +86,9 @@ try {
 
   console.log("\nDocs link fetches:");
   const openapi = await getJson(`${SAMPLE}/openapi.json`);
-  check("sample API serves /openapi.json with 8 paths", () => {
+  check("sample API serves /openapi.json with 11 paths", () => {
     if (openapi.status !== 200) throw new Error(`status=${openapi.status}`);
-    if (Object.keys(openapi.data.paths || {}).length !== 8) {
+    if (Object.keys(openapi.data.paths || {}).length !== 11) {
       throw new Error(`got ${Object.keys(openapi.data.paths || {}).length} paths`);
     }
   });
@@ -104,6 +104,45 @@ try {
     if (mdRaw.length < 1000) throw new Error(`too short: ${mdRaw.length} bytes`);
     if (!mdRaw.includes("/v1/products") || !mdRaw.includes("### ")) {
       throw new Error("missing expected sections");
+    }
+  });
+
+  console.log("\nNew shape checks:");
+  const orderRow = await fetch(`${SAMPLE}/v1/orders/recent`).then((r) => r.json());
+  check("orders have a 'day' field (Mon..Sun)", () => {
+    const o = orderRow.orders[0];
+    if (!o || !o.day) throw new Error(`no day field: ${JSON.stringify(o)}`);
+    if (!/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/.test(o.day)) {
+      throw new Error(`bad day value: ${o.day}`);
+    }
+  });
+  const revSeries = await fetch(`${SAMPLE}/v1/revenue/series`).then((r) => r.json());
+  check("revenue/series rows have a 'day' field", () => {
+    const s = revSeries.series[0];
+    if (!s.day) throw new Error(`no day: ${JSON.stringify(s)}`);
+  });
+  const byCat = await fetch(`${SAMPLE}/v1/revenue/by-category`).then((r) => r.json());
+  check("/v1/revenue/by-category returns category rows", () => {
+    if (!Array.isArray(byCat.categories) || byCat.categories.length === 0) {
+      throw new Error(`bad: ${JSON.stringify(byCat)}`);
+    }
+    const row = byCat.categories[0];
+    if (typeof row.category !== "string" || typeof row.revenue !== "number") {
+      throw new Error(`bad row shape: ${JSON.stringify(row)}`);
+    }
+  });
+  const byDay = await fetch(`${SAMPLE}/v1/revenue/by-day`).then((r) => r.json());
+  check("/v1/revenue/by-day returns one row per weekday", () => {
+    if (!Array.isArray(byDay.days) || byDay.days.length !== 7) {
+      throw new Error(`expected 7 days, got ${byDay.days?.length}`);
+    }
+  });
+  const bs = await fetch(`${SAMPLE}/v1/products/best-sellers?limit=3`).then((r) => r.json());
+  check("/v1/products/best-sellers returns products with unitsSold + revenue", () => {
+    if (!bs.products || bs.products.length === 0) throw new Error("no products");
+    const p = bs.products[0];
+    if (typeof p.unitsSold !== "number" || typeof p.revenue !== "number") {
+      throw new Error(`bad shape: ${JSON.stringify(p)}`);
     }
   });
 

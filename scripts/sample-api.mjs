@@ -98,7 +98,10 @@ const OPENAPI_SPEC = {
   info: {
     title: "SampleStore API",
     description:
-      "A small merchant/ecommerce API used to demonstrate the BYOAPI flow. All data is generated at startup and is identical across runs (deterministic PRNG).",
+      "A small merchant/ecommerce API used to demonstrate the BYOAPI flow. " +
+      "All data is generated at startup; the same numbers appear on every run. " +
+      "Field names are exactly as listed in each endpoint description — use those " +
+      "names (not invented aliases) in chart keys, table columns, and where filters.",
     version: "1.0.0",
   },
   servers: [
@@ -115,6 +118,7 @@ const OPENAPI_SPEC = {
     schemas: {
       Product: {
         type: "object",
+        description: "Fields: id, name, category, price, inStock. The list endpoint does NOT include unitsSold/revenue — use /v1/products/best-sellers for that.",
         properties: {
           id: { type: "string", example: "p_001" },
           name: { type: "string", example: "Smoked plate" },
@@ -125,9 +129,11 @@ const OPENAPI_SPEC = {
       },
       Order: {
         type: "object",
+        description: "Fields: id, date (YYYY-MM-DD), day (Mon..Sun), customerId, customerName, items, total, status.",
         properties: {
           id: { type: "string", example: "o_2026-08-13_01" },
           date: { type: "string", format: "date", example: "2026-08-13" },
+          day: { type: "string", enum: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], example: "Wed" },
           customerId: { type: "string", example: "c_048" },
           customerName: { type: "string", example: "Iris Kim" },
           total: { type: "number", example: 48.20 },
@@ -148,6 +154,7 @@ const OPENAPI_SPEC = {
       },
       Customer: {
         type: "object",
+        description: "Fields: id, name, email, segment, lifetimeSpend, orders, lastOrder.",
         properties: {
           id: { type: "string", example: "c_017" },
           name: { type: "string", example: "Hana Okafor" },
@@ -160,15 +167,49 @@ const OPENAPI_SPEC = {
       },
       RevenuePoint: {
         type: "object",
+        description: "Fields: date (YYYY-MM-DD), day (Mon..Sun), orders (int), paidOrders (int), revenue (number).",
         properties: {
           date: { type: "string", format: "date" },
+          day: { type: "string", enum: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] },
           orders: { type: "integer" },
           paidOrders: { type: "integer" },
           revenue: { type: "number" },
         },
       },
+      ProductWithStats: {
+        allOf: [
+          { $ref: "#/components/schemas/Product" },
+          {
+            type: "object",
+            description: "Adds: unitsSold (int), revenue (number).",
+            properties: {
+              unitsSold: { type: "integer" },
+              revenue: { type: "number" },
+            },
+          },
+        ],
+      },
+      CategoryRow: {
+        type: "object",
+        description: "Fields: category, revenue, units.",
+        properties: {
+          category: { type: "string" },
+          revenue: { type: "number" },
+          units: { type: "integer" },
+        },
+      },
+      DayOfWeekRow: {
+        type: "object",
+        description: "Fields: day (Mon..Sun), revenue, orders.",
+        properties: {
+          day: { type: "string", enum: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] },
+          revenue: { type: "number" },
+          orders: { type: "integer" },
+        },
+      },
       Account: {
         type: "object",
+        description: "Fields: id, name, role, plan, email, createdAt.",
         properties: {
           id: { type: "string", example: "u_001" },
           name: { type: "string", example: "Demo Account" },
@@ -183,8 +224,8 @@ const OPENAPI_SPEC = {
   paths: {
     "/v1/products": {
       get: {
-        summary: "List all products",
-        description: "Returns every product in the catalog with its current stock level.",
+        summary: "List all products (no sales stats)",
+        description: "Returns `{ products: [{ id, name, category, price, inStock }] }`. The list does NOT include unitsSold or revenue — use /v1/products/best-sellers for that.",
         responses: {
           "200": {
             description: "OK",
@@ -194,6 +235,31 @@ const OPENAPI_SPEC = {
                   type: "object",
                   properties: {
                     products: { type: "array", items: { $ref: "#/components/schemas/Product" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/v1/products/best-sellers": {
+      get: {
+        summary: "Top-selling products, sorted by units sold (desc)",
+        description: "Returns `{ total, products: [{ id, name, category, price, unitsSold, revenue }] }`. Use this for \"best sellers\" charts. For category share, use /v1/revenue/by-category instead.",
+        parameters: [
+          { name: "limit", in: "query", required: false, schema: { type: "integer", default: 10, maximum: 20 }, description: "Maximum products." },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    total: { type: "integer" },
+                    products: { type: "array", items: { $ref: "#/components/schemas/ProductWithStats" } },
                   },
                 },
               },
@@ -242,6 +308,7 @@ const OPENAPI_SPEC = {
     "/v1/orders": {
       get: {
         summary: "List recent orders",
+        description: "Returns `{ orders: [Order, ...] }` where each Order has fields: id, date (YYYY-MM-DD), day (Mon..Sun), customerId, customerName, items, total, status. Use `day` for day-of-week filters, `date` for date range, `status` for paid/refunded/pending.",
         parameters: [
           {
             name: "limit",
@@ -270,7 +337,8 @@ const OPENAPI_SPEC = {
     },
     "/v1/orders/recent": {
       get: {
-        summary: "Get the 20 most recent orders",
+        summary: "The 20 most recent orders",
+        description: "Same shape as /v1/orders. Each Order has: id, date, day, customerId, customerName, items, total, status.",
         responses: {
           "200": {
             description: "OK",
@@ -291,6 +359,7 @@ const OPENAPI_SPEC = {
     "/v1/customers/top": {
       get: {
         summary: "Top customers by lifetime spend",
+        description: "Returns `{ customers: [{ id, name, email, segment, lifetimeSpend, orders, lastOrder }] }` sorted by lifetimeSpend desc. Use `lifetimeSpend` as the value column and `name` as the label.",
         parameters: [
           {
             name: "limit",
@@ -319,15 +388,15 @@ const OPENAPI_SPEC = {
     },
     "/v1/revenue/series": {
       get: {
-        summary: "Daily revenue series",
-        description: "Returns one entry per day for the requested window, oldest first.",
+        summary: "Daily revenue series (time series)",
+        description: "Returns `{ days, series: [{ date, day, orders, paidOrders, revenue }] }` — one entry per day, oldest first. `day` is the 3-letter weekday. Use this for line/area charts with x=date and y=revenue.",
         parameters: [
           {
             name: "days",
             in: "query",
             required: false,
             schema: { type: "integer", default: 30, maximum: 90 },
-            description: "Number of days to include.",
+            description: "Window length.",
           },
         ],
         responses: {
@@ -348,9 +417,54 @@ const OPENAPI_SPEC = {
         },
       },
     },
+    "/v1/revenue/by-category": {
+      get: {
+        summary: "Total revenue grouped by product category",
+        description: "Returns `{ total, categories: [{ category, revenue, units }] }` summed across all paid orders, sorted by revenue desc. Use this for category-share pie charts with x=category and y=revenue.",
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    total: { type: "number" },
+                    categories: { type: "array", items: { $ref: "#/components/schemas/CategoryRow" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/v1/revenue/by-day": {
+      get: {
+        summary: "Revenue aggregated by day-of-week (Mon..Sun)",
+        description: "Returns `{ total, days: [{ day, revenue, orders }] }` — one row per weekday, in calendar order (Mon first). Use this for a single bar chart of revenue by day-of-week across the full 30-day window.",
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    total: { type: "number" },
+                    days: { type: "array", items: { $ref: "#/components/schemas/DayOfWeekRow" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     "/v1/inventory/low-stock": {
       get: {
         summary: "Products below a stock threshold",
+        description: "Returns `{ threshold, count, products: [{ id, name, category, inStock, threshold }] }` sorted by inStock asc.",
         parameters: [
           {
             name: "threshold",
@@ -546,6 +660,11 @@ const CATEGORIES = [
 const FIRST = ["Ada", "Marcus", "Lila", "Theo", "Yui", "Omar", "Priya", "Bao", "Noor", "Cyrus", "Iris", "Felix", "Maya", "Diego", "Sana", "Ren", "Vega", "Hana", "Quinn", "Mateo"];
 const LAST  = ["Okafor", "Chen", "Patel", "Rivera", "Kim", "Singh", "Nguyen", "Garcia", "Brown", "Lee", "Hassan", "Park", "Lopez", "Schmidt", "Tanaka", "Reed", "Khan", "Mendez", "Wong", "Volkov"];
 
+// Short day-of-week labels. The LLM extractor and `where` filter
+// commonly reach for these, so we expose them as a `day` field on
+// every date-bearing response.
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 // Generate 20 products across 5 categories.
 const products = [];
 {
@@ -592,6 +711,7 @@ const dailyRevenue = [];
   for (let d = 0; d < 30; d++) {
     const day = new Date(today.getTime() - d * 86_400_000);
     const date = day.toISOString().slice(0, 10);
+    const dayOfWeek = DAY_NAMES[day.getUTCDay()]; // "Mon".."Sun"
     const rand = rng(seed(`day-${date}`));
     const count = rint(rand, 5, 12);
     let dayTotal = 0;
@@ -610,6 +730,7 @@ const dailyRevenue = [];
       orders.push({
         id: `o_${date}_${String(s + 1).padStart(2, "0")}`,
         date,
+        day: dayOfWeek,
         customerId: customer.id,
         customerName: customer.name,
         items,
@@ -620,6 +741,7 @@ const dailyRevenue = [];
     }
     dailyRevenue.push({
       date,
+      day: dayOfWeek,
       orders: count,
       paidOrders: orders.filter((o) => o.date === date && o.status === "paid").length,
       revenue: Math.round(dayTotal * 100) / 100,
@@ -628,7 +750,8 @@ const dailyRevenue = [];
 }
 dailyRevenue.reverse(); // oldest first
 
-// Per-product totals (for the /v1/products/{id} response).
+// Per-product totals (for the /v1/products/{id} response and the
+// best-sellers list endpoint).
 const productStats = new Map();
 for (const o of orders) {
   if (o.status !== "paid") continue;
@@ -639,6 +762,59 @@ for (const o of orders) {
     productStats.set(it.productId, cur);
   }
 }
+
+// Per-category totals (for the /v1/revenue/by-category endpoint).
+const categoryStats = new Map();
+for (const o of orders) {
+  if (o.status !== "paid") continue;
+  for (const it of o.items) {
+    const product = products.find((p) => p.id === it.productId);
+    if (!product) continue;
+    const cur = categoryStats.get(product.category) ?? { revenue: 0, units: 0 };
+    cur.revenue += it.qty * it.price;
+    cur.units += it.qty;
+    categoryStats.set(product.category, cur);
+  }
+}
+
+// Per-day-of-week revenue (for "is Saturday really our best day?" queries).
+const dayOfWeekStats = new Map();
+for (const o of orders) {
+  if (o.status !== "paid") continue;
+  for (const it of o.items) {
+    const cur = dayOfWeekStats.get(o.day) ?? { revenue: 0, orders: 0 };
+    cur.revenue += it.qty * it.price;
+    cur.orders += 1;
+    dayOfWeekStats.set(o.day, cur);
+  }
+}
+
+// Best-sellers list (sorted by units sold, desc).
+const bestSellers = [...products]
+  .map((p) => ({
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    price: p.price,
+    unitsSold: productStats.get(p.id)?.unitsSold ?? 0,
+    revenue: Math.round((productStats.get(p.id)?.revenue ?? 0) * 100) / 100,
+  }))
+  .sort((a, b) => b.unitsSold - a.unitsSold);
+
+// Category mix (revenue by category, sorted desc).
+const categoryMix = [...categoryStats.entries()]
+  .map(([category, s]) => ({
+    category,
+    revenue: Math.round(s.revenue * 100) / 100,
+    units: s.units,
+  }))
+  .sort((a, b) => b.revenue - a.revenue);
+
+// Day-of-week summary (in Mon..Sun order so it sorts cleanly in charts).
+const dayOfWeekSummary = DAY_NAMES.slice(1).concat(["Sun"]).map((day) => {
+  const s = dayOfWeekStats.get(day) ?? { revenue: 0, orders: 0 };
+  return { day, revenue: Math.round(s.revenue * 100) / 100, orders: s.orders };
+});
 
 // ───────── HTTP server ─────────
 function json(res, status, body) {
@@ -679,10 +855,13 @@ const server = http.createServer((req, res) => {
       endpoints: [
         "GET /v1/products",
         "GET /v1/products/{id}",
+        "GET /v1/products/best-sellers?limit=10",
         "GET /v1/orders",
         "GET /v1/orders/recent",
         "GET /v1/customers/top",
         "GET /v1/revenue/series?days=30",
+        "GET /v1/revenue/by-category",
+        "GET /v1/revenue/by-day",
         "GET /v1/inventory/low-stock?threshold=20",
         "GET /v1/account/me  (Authorization: Bearer demo-key-12345)",
         "GET /openapi.json  (paste URL into the BYOAPI docs-link field)",
@@ -780,6 +959,25 @@ const server = http.createServer((req, res) => {
       }))
       .sort((a, b) => a.inStock - b.inStock);
     return json(res, 200, { threshold, count: low.length, products: low });
+  }
+  if (path === "/v1/revenue/by-category" && method === "GET") {
+    return json(res, 200, {
+      total: Math.round(categoryMix.reduce((s, x) => s + x.revenue, 0) * 100) / 100,
+      categories: categoryMix,
+    });
+  }
+  if (path === "/v1/revenue/by-day" && method === "GET") {
+    return json(res, 200, {
+      total: Math.round(dayOfWeekSummary.reduce((s, x) => s + x.revenue, 0) * 100) / 100,
+      days: dayOfWeekSummary,
+    });
+  }
+  if (path === "/v1/products/best-sellers" && method === "GET") {
+    const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "10", 10) || 10, 20);
+    return json(res, 200, {
+      total: bestSellers.length,
+      products: bestSellers.slice(0, limit),
+    });
   }
 
   return notFound(res, path);
