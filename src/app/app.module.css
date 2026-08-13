@@ -1019,3 +1019,144 @@
   color: var(--color-fg-muted);
   font-size: var(--text-sm);
 }
+
+/* === API registration form ===================================== */
+
+.dsd__api-intro {
+  margin: 0 0 var(--space-4) 0;
+  color: var(--color-fg-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  max-width: 640px;
+}
+
+.dsd__field-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.dsd__field-hint {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-fg-muted);
+}
+
+.dsd__field-hint code {
+  font-size: 11px;
+  padding: 1px 4px;
+  background: var(--color-bg-surface-2);
+  border-radius: var(--radius-xs);
+}
+
+.dsd__api-section {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  background: var(--color-bg-surface-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.dsd__api-section > summary {
+  cursor: pointer;
+  font-weight: 500;
+  font-size: var(--text-sm);
+  color: var(--color-fg-default);
+  user-select: none;
+}
+
+.dsd__api-section > summary:hover {
+  color: var(--color-accent-fg);
+}
+
+.dsd__api-help {
+  margin: var(--space-2) 0;
+  font-size: var(--text-xs);
+  color: var(--color-fg-muted);
+}
+
+.dsd__file-row {
+  display: flex;
+  align-items: center;
+  padding: var(--space-3);
+  background: var(--color-bg-surface);
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--color-fg-muted);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.dsd__file-row:hover {
+  background: var(--color-bg-surface-2);
+  border-color: var(--color-accent-fg);
+  color: var(--color-fg-default);
+}
+
+.dsd__file-text {
+  flex: 1;
+}
+
+.dsd__textarea {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: var(--space-2);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg-default);
+  resize: vertical;
+  min-height: 80px;
+  box-sizing: border-box;
+}
+
+.dsd__textarea:focus {
+  outline: 2px solid var(--color-accent-fg);
+  outline-offset: 1px;
+  border-color: var(--color-accent-fg);
+}
+
+.dsd__sample-list {
+  list-style: none;
+  margin: var(--space-3) 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.dsd__sample-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.dsd__sample-item code {
+  font-size: 11px;
+  color: var(--color-fg-default);
+}
+
+.dsd__sample-remove {
+  background: transparent;
+  border: none;
+  color: var(--color-fg-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: var(--radius-xs);
+}
+
+.dsd__sample-remove:hover {
+  color: var(--color-status-bad);
+  background: var(--color-bg-surface-2);
+}

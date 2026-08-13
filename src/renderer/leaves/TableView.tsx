@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Table as TableNode } from "@/dsl/schema";
-import { lookupKey, resolveRows } from "@/renderer/resolveValue";
+import { lookupKey, resolveRowsAsync } from "@/renderer/resolveValue";
 import { formatValue } from "@/renderer/format";
 import s from "@/renderer/renderer.module.css";
 
@@ -18,7 +18,28 @@ function numeric(v: unknown): number | null {
 }
 
 export function TableView({ node }: Props) {
-  const allRows = useMemo(() => resolveRows(node.data), [node.data]);
+  // Async load — covers both static (CSV/JSON) and live (API) sources.
+  const [allRows, setAllRows] = useState<Array<Record<string, unknown>>>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    resolveRowsAsync(node.data)
+      .then((r) => {
+        if (!cancelled) setAllRows(r);
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadError((e as Error).message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [node.data]);
   const rows = useMemo(() => allRows.slice(0, node.pageSize), [allRows, node.pageSize]);
 
   // Pre-compute max for any "bar" column so each cell scales to the same baseline.
@@ -39,6 +60,11 @@ export function TableView({ node }: Props) {
   return (
     <div className={s["gir-table"]}>
       {node.title && <div className={s["gir-table__title"]}>{node.title}</div>}
+      {loadError && (
+        <div className={s["gir-table__error"]} role="alert">
+          {loadError}
+        </div>
+      )}
       <div className={s["gir-table__scroll"]}>
         <table className={s["gir-table__table"]} aria-label={node.title ?? "Data table"}>
           {node.title && <caption className={s["gir-table__sr-caption"]}>{node.title}</caption>}
@@ -65,7 +91,7 @@ export function TableView({ node }: Props) {
             {rows.length === 0 ? (
               <tr>
                 <td className={s["gir-table__empty"]} colSpan={node.columns.length}>
-                  {node.emptyMessage}
+                  {loading ? "Loading…" : node.emptyMessage}
                 </td>
               </tr>
             ) : (

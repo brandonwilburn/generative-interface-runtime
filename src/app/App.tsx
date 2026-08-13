@@ -42,15 +42,35 @@ export function App() {
   const sourcesApi = useSources();
   const planner = useMemo(() => createPlanner(), []);
 
-  // Keep the resolver's dynamic map in sync with the in-memory row cache.
-  // The capability resolver is module-level so we have to push from React;
-  // this effect does that whenever sources/rows change.
+  // Keep the resolver's dynamic map in sync with the in-memory row cache
+  // AND the registered APIs. The capability resolver is module-level, so
+  // we have to push from React; this effect does that whenever sources
+  // or rows change.
+  //
+  // - CSV/JSON sources: sync resolver returns the cached rowset.
+  // - API sources: async resolver calls the live endpoint via
+  //   /api/sources/:id/call, capturing the apiId + endpoint name in
+  //   the closure. The renderer awaits these uniformly.
   useEffect(() => {
-    const map: Record<string, () => unknown> = {};
+    const map: Record<
+      string,
+      (params: Record<string, string | number | boolean>) => unknown
+    > = {};
     for (const s of sourcesApi.sources) {
-      const rows = sourcesApi.rowsById[s.id];
-      if (rows) {
-        map[s.capability] = () => rows;
+      if (s.kind === "csv" || s.kind === "json") {
+        const rows = sourcesApi.rowsById[s.id];
+        if (rows) {
+          map[s.capability] = () => rows;
+        }
+      } else if (s.kind === "api") {
+        // One resolver per endpoint, capturing the source id.
+        for (const ep of s.endpoints) {
+          const fullName = `${s.capability}.${ep.name}`;
+          map[fullName] = async (params) => {
+            const { callApiEndpoint } = await import("@/data/sourcesRegistry");
+            return callApiEndpoint(s.id, ep.name, params);
+          };
+        }
       }
     }
     setDynamicResolvers(map);
@@ -259,6 +279,7 @@ export function App() {
           onClose={() => setShowDataSourceDialog(false)}
           onRegisterCsv={sourcesApi.registerCsv}
           onRegisterJson={sourcesApi.registerJson}
+          onRegisterApi={sourcesApi.registerApi}
           onRemove={sourcesApi.remove}
         />
       )}

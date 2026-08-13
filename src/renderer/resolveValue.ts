@@ -3,8 +3,8 @@
  *
  * Used by MetricCard, Comparison, Chart, and Table to fetch data lazily.
  */
-import { resolveCapability } from "@/data/capabilityResolver";
-import type { CapabilityRef } from "@/dsl/schema";
+import { resolveCapability, resolveCapabilityAsync } from "../data/capabilityResolver";
+import type { CapabilityRef } from "../dsl/schema";
 
 export function resolvePrimitive(
   inline: unknown,
@@ -33,18 +33,49 @@ export function resolvePrimitive(
 export function resolveRows(ref: CapabilityRef): Array<Record<string, unknown>> {
   const data = resolveCapability(ref);
   if (!Array.isArray(data)) return [];
-  const rows = data as Array<Record<string, unknown>>;
-  // Apply the planner's optional `where` filter. Each entry is a strict
-  // equality match — the planner scopes a chart/table to a subset of
-  // rows without needing server-side query support.
-  if (ref.where) {
-    return rows.filter((row) =>
-      Object.entries(ref.where!).every(
-        ([field, want]) => row[field] === want,
-      ),
-    );
+  return applyWhereFilter(data as Array<Record<string, unknown>>, ref.where);
+}
+
+/** Async variant — awaits the resolver so live API calls work. */
+export async function resolveRowsAsync(
+  ref: CapabilityRef,
+): Promise<Array<Record<string, unknown>>> {
+  const data = await resolveCapabilityAsync(ref);
+  if (!Array.isArray(data)) return [];
+  return applyWhereFilter(data as Array<Record<string, unknown>>, ref.where);
+}
+
+/** Async variant of `resolvePrimitive`. */
+export async function resolvePrimitiveAsync(
+  inline: unknown,
+  ref: CapabilityRef | undefined,
+  pick?: string,
+): Promise<number | string> {
+  if (inline !== undefined) {
+    if (typeof inline === "number" || typeof inline === "string") return inline;
   }
-  return rows;
+  if (ref) {
+    const data = (await resolveCapabilityAsync(ref)) as Record<string, unknown>;
+    if (pick) {
+      const v = data[pick];
+      if (typeof v === "number" || typeof v === "string") return v;
+    }
+    for (const k of Object.keys(data)) {
+      const v = data[k];
+      if (typeof v === "number") return v;
+    }
+  }
+  return 0;
+}
+
+function applyWhereFilter(
+  rows: Array<Record<string, unknown>>,
+  where: CapabilityRef["where"],
+): Array<Record<string, unknown>> {
+  if (!where) return rows;
+  return rows.filter((row) =>
+    Object.entries(where).every(([field, want]) => row[field] === want),
+  );
 }
 
 /**

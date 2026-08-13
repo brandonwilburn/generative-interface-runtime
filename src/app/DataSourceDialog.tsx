@@ -1,16 +1,24 @@
 /**
  * "Connect data" dialog.
  *
- * Lets the user upload a CSV or JSON file, see a preview of the inferred
- * schema, and register it as a runtime capability. Also lists existing
- * sources with delete affordances.
+ * Lets the user either:
+ *   1. Upload a CSV or JSON file — schema is inferred locally and
+ *      registered as a `user.<name>` capability.
+ *   2. Register a JSON-based API — name + base URL + (optional)
+ *      docs link / docs file / sample request-response pairs. The
+ *      backend calls the LLM extractor to derive endpoints, the
+ *      user reviews, and we save.
  *
- * For v1 the schema is inferred locally (column types from the first 20
- * rows). When we add API registration, the same component will gain a
- * tab that runs the LLM-driven adaptation call.
+ * Also lists existing sources with delete affordances.
  */
 import { useEffect, useRef, useState } from "react";
-import { type SourceRecord, fetchSourceData } from "@/data/sourcesRegistry";
+import {
+  type SourceRecord,
+  type ApiSourceRecord,
+  type ApiRegistrationInput,
+  type ApiSamplePair,
+  fetchSourceData,
+} from "@/data/sourcesRegistry";
 import { summarizeSource } from "@/data/dynamicCapabilities";
 import s from "./app.module.css";
 
@@ -21,6 +29,7 @@ interface Props {
   onClose: () => void;
   onRegisterCsv: (name: string, content: string) => Promise<SourceRecord>;
   onRegisterJson: (name: string, content: string) => Promise<SourceRecord>;
+  onRegisterApi: (input: ApiRegistrationInput) => Promise<ApiSourceRecord>;
   onRemove: (id: string) => Promise<void>;
 }
 
@@ -167,6 +176,19 @@ export function DataSourceDialog(props: Props) {
     }
   };
 
+  const submitApi = async (input: ApiRegistrationInput) => {
+    setBusy(true);
+    setLocalError(null);
+    try {
+      await props.onRegisterApi(input);
+      reset();
+    } catch (e) {
+      setLocalError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className={s["dsd__overlay"]} onClick={props.onClose}>
       <div
@@ -203,8 +225,6 @@ export function DataSourceDialog(props: Props) {
             type="button"
             role="tab"
             aria-selected={tab === "api"}
-            disabled
-            title="Coming soon"
           >
             API
           </button>
@@ -214,8 +234,6 @@ export function DataSourceDialog(props: Props) {
             type="button"
             role="tab"
             aria-selected={tab === "docs"}
-            disabled
-            title="Coming soon"
           >
             Docs link
           </button>
@@ -380,24 +398,293 @@ export function DataSourceDialog(props: Props) {
         )}
 
         {tab === "api" && (
-          <div className={s["dsd__body"]}>
-            <div className={s["dsd__coming-soon"]}>
-              API registration ships in the next pass — paste a curl, a sample
-              response, and the planner will figure out the rest.
-            </div>
-          </div>
+          <ApiRegistrationForm
+            busy={busy}
+            localError={localError}
+            onSubmit={submitApi}
+          />
         )}
 
         {tab === "docs" && (
-          <div className={s["dsd__body"]}>
-            <div className={s["dsd__coming-soon"]}>
-              Docs-link scraping is on the roadmap.
-            </div>
-          </div>
+          <ApiRegistrationForm
+            busy={busy}
+            localError={localError}
+            onSubmit={submitApi}
+          />
         )}
 
         {/* Suppress unused warnings for the helpers used by future tabs. */}
         {false && <>{fetchSourceData}</>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * API registration form. Captures the inputs the user wants to feed
+ * the LLM extractor with (base URL + docs link + docs file + sample
+ * pairs) and the auth header (stored server-side only).
+ *
+ * The backend does the actual LLM call, so the user just clicks
+ * "Register" and waits. The first call is slow (~3-10s); subsequent
+ * uses of the resulting capability are fast (cached responses).
+ */
+function ApiRegistrationForm({
+  busy,
+  localError,
+  onSubmit,
+}: {
+  busy: boolean;
+  localError: string | null;
+  onSubmit: (input: ApiRegistrationInput) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [authHeader, setAuthHeader] = useState("");
+  const [docsLink, setDocsLink] = useState("");
+  const [docsFile, setDocsFile] = useState<{ filename: string; content: string } | null>(null);
+  const [sampleText, setSampleText] = useState("");
+  const [sampleMethod, setSampleMethod] = useState<"GET" | "POST">("GET");
+  const [samplePath, setSamplePath] = useState("");
+  const [samples, setSamples] = useState<ApiSamplePair[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const addSample = () => {
+    if (!sampleText.trim()) return;
+    setSamples((s) => [
+      ...s,
+      {
+        label: samplePath || `Sample ${s.length + 1}`,
+        method: sampleMethod,
+        path: samplePath || "/",
+        responseBody: sampleText,
+      },
+    ]);
+    setSampleText("");
+    setSamplePath("");
+  };
+
+  const removeSample = (i: number) => {
+    setSamples((s) => s.filter((_, idx) => idx !== i));
+  };
+
+  const handleDocsFile = async (file: File) => {
+    if (file.size > 1024 * 1024) {
+      alert("Docs file too large (1 MB max).");
+      return;
+    }
+    const text = await file.text();
+    setDocsFile({ filename: file.name, content: text });
+  };
+
+  const submit = async () => {
+    if (!name.trim() || !baseUrl.trim()) return;
+    const input: ApiRegistrationInput = {
+      name: name.trim(),
+      baseUrl: baseUrl.trim(),
+      ...(authHeader.trim() ? { authHeader: authHeader.trim() } : {}),
+      ...(docsLink.trim() ? { docsLink: docsLink.trim() } : {}),
+      ...(docsFile ? { docsFile } : {}),
+      ...(samples.length > 0 ? { samplePairs: samples } : {}),
+    };
+    await onSubmit(input);
+    // Clear the form on success — the parent will reset busy state.
+    setName("");
+    setBaseUrl("");
+    setAuthHeader("");
+    setDocsLink("");
+    setDocsFile(null);
+    setSamples([]);
+  };
+
+  const canSubmit = name.trim().length > 0 && baseUrl.trim().length > 0 && !busy;
+
+  return (
+    <div className={s["dsd__body"]}>
+      <div className={s["dsd__form"]}>
+        <p className={s["dsd__api-intro"]}>
+          Register a JSON-based API. The runtime will call the LLM to read your
+          docs/samples and figure out the endpoints, then expose each one as a
+          planner capability. The first registration is slow; subsequent
+          dashboard renders that use the API are fast.
+        </p>
+
+        <div className={s["dsd__field-row"]}>
+          <label className={s["dsd__field"]}>
+            <span className={s["dsd__field-label"]}>API name</span>
+            <input
+              type="text"
+              className={s["dsd__input"]}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="weather"
+              autoFocus
+            />
+            <span className={s["dsd__field-hint"]}>
+              Capability prefix: <code>user.{name.trim() || "..."}</code>
+            </span>
+          </label>
+
+          <label className={s["dsd__field"]}>
+            <span className={s["dsd__field-label"]}>Base URL</span>
+            <input
+              type="url"
+              className={s["dsd__input"]}
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.weather.com"
+            />
+          </label>
+        </div>
+
+        <label className={s["dsd__field"]}>
+          <span className={s["dsd__field-label"]}>Authorization header (optional)</span>
+          <input
+            type="text"
+            className={s["dsd__input"]}
+            value={authHeader}
+            onChange={(e) => setAuthHeader(e.target.value)}
+            placeholder="Bearer sk-…"
+          />
+          <span className={s["dsd__field-hint"]}>
+            Stored server-side only — never sent to the browser bundle. Sent as
+            the <code>Authorization</code> header on every call.
+          </span>
+        </label>
+
+        <details className={s["dsd__api-section"]}>
+          <summary>Documentation (helps the extractor a lot)</summary>
+
+          <label className={s["dsd__field"]}>
+            <span className={s["dsd__field-label"]}>Docs link</span>
+            <input
+              type="url"
+              className={s["dsd__input"]}
+              value={docsLink}
+              onChange={(e) => setDocsLink(e.target.value)}
+              placeholder="https://…/openapi.json or .md"
+            />
+            <span className={s["dsd__field-hint"]}>
+              Plain text or JSON up to 64 KB. HTML is rendered as text.
+            </span>
+          </label>
+
+          <div className={s["dsd__field"]}>
+            <span className={s["dsd__field-label"]}>Docs file</span>
+            <div
+              className={s["dsd__file-row"]}
+              onClick={() => fileRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  fileRef.current?.click();
+                }
+              }}
+            >
+              <span className={s["dsd__file-text"]}>
+                {docsFile ? `📄 ${docsFile.filename}` : "Choose .md / .txt / .json / .yaml"}
+              </span>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".md,.txt,.json,.yaml,.yml,text/plain,application/json"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleDocsFile(f);
+                }}
+              />
+            </div>
+          </div>
+        </details>
+
+        <details className={s["dsd__api-section"]}>
+          <summary>Sample request/response ({samples.length})</summary>
+          <p className={s["dsd__api-help"]}>
+            Paste a sample response you got from the API. The extractor will
+            infer the endpoint URL pattern, method, and parameters.
+          </p>
+
+          <div className={s["dsd__field-row"]}>
+            <label className={s["dsd__field"]}>
+              <span className={s["dsd__field-label"]}>Method</span>
+              <select
+                className={s["dsd__input"]}
+                value={sampleMethod}
+                onChange={(e) => setSampleMethod(e.target.value as "GET" | "POST")}
+              >
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+              </select>
+            </label>
+            <label className={s["dsd__field"]}>
+              <span className={s["dsd__field-label"]}>Path (exact)</span>
+              <input
+                type="text"
+                className={s["dsd__input"]}
+                value={samplePath}
+                onChange={(e) => setSamplePath(e.target.value)}
+                placeholder="/v1/weather/London"
+              />
+            </label>
+          </div>
+
+          <label className={s["dsd__field"]}>
+            <span className={s["dsd__field-label"]}>Response body (JSON)</span>
+            <textarea
+              className={s["dsd__textarea"]}
+              value={sampleText}
+              onChange={(e) => setSampleText(e.target.value)}
+              placeholder='{ "temp": 18, "conditions": "cloudy" }'
+              rows={5}
+            />
+          </label>
+
+          <button
+            className={s["dsd__btn"]}
+            type="button"
+            onClick={addSample}
+            disabled={!sampleText.trim()}
+          >
+            Add sample
+          </button>
+
+          {samples.length > 0 && (
+            <ul className={s["dsd__sample-list"]}>
+              {samples.map((sp, i) => (
+                <li key={i} className={s["dsd__sample-item"]}>
+                  <code>{sp.method} {sp.path}</code>
+                  <button
+                    className={s["dsd__sample-remove"]}
+                    onClick={() => removeSample(i)}
+                    type="button"
+                    aria-label="Remove sample"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </details>
+
+        {localError && (
+          <div className={s["dsd__error"]}>{localError}</div>
+        )}
+
+        <div className={s["dsd__actions"]}>
+          <button
+            className={[s["dsd__btn"], s["dsd__btn--primary"]].join(" ")}
+            onClick={submit}
+            type="button"
+            disabled={!canSubmit}
+            title={canSubmit ? "Register" : "Enter a name and a base URL first"}
+          >
+            {busy ? "Extracting endpoints…" : "Register API"}
+          </button>
+        </div>
       </div>
     </div>
   );

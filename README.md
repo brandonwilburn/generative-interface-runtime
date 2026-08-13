@@ -60,6 +60,11 @@ http://localhost:5173/#intent=Show%20me%20the%20business%20performed%20this%20mo
 - **Bring Your Own Data (BYOD)** — drop a CSV or JSON file in the dialog and it
   becomes a runtime capability the planner can reference. Backend persists to
   `data/sources.json` (gitignored).
+- **Bring Your Own API (BYOAPI)** — register any JSON-based API by name, base
+  URL, and (optionally) docs link / docs file / sample request-response
+  pairs. The runtime calls an LLM to extract the endpoint list, then exposes
+  each endpoint as its own `user.<api>.<endpoint>` capability. Calls run
+  live, server-side, with the auth header stored server-side only.
 - **Where-filter + chart aggregation** so per-day, per-product breakdowns work
   on hourly data without round-trips.
 - **Hash trick for headless / CI** — drive the LLM via the URL hash and capture
@@ -235,6 +240,49 @@ Test data lives at `samples/hourly_product_mix.csv` (336 rows × 7 days × 4 pro
 - **Aggregation** — bar and pie charts auto-aggregate by `x` (sum y for
   duplicate x values). A bar with `x: "product"` over hourly rows gives one
   bar per product. Line/area pass through as-is (one row = one observation).
+
+## Bring Your Own API (BYOAPI)
+
+Click **＋ Connect data** → **API**. Fill in:
+
+- **API name** — appears as the capability prefix (`user.<name>.<endpoint>`)
+- **Base URL** — prepended to every path
+- **Authorization header** (optional) — stored server-side only, never sent to
+  the browser bundle, attached as `Authorization` on every call
+- **Documentation** (any combination, all optional):
+  - **Docs link** — URL to docs (HTML is stripped to text, JSON / OpenAPI is
+    passed through). 8s timeout, 1 MB cap.
+  - **Docs file** — drag-and-drop `.md` / `.txt` / `.json` / `.yaml`
+  - **Sample request/response pairs** — paste a response you got from the API
+    and the path you called; the LLM extracts the method, path, params, and
+    response shape
+
+Hit **Register API** and wait. The LLM extractor returns a list of
+`{ method, path, params, returnsDescription }` per endpoint. The full
+source is persisted to `data/sources.json`; auth header is stripped from
+the public view.
+
+Once registered, the planner advertises each endpoint as its own
+capability. The first call per `(api, endpoint, params)` is slow (real
+HTTP request); subsequent calls hit an in-memory cache. Force a refresh
+by removing and re-registering the source.
+
+**Live execution** — when a dashboard renders, calling
+`user.<api>.<endpoint>` runs the request server-side (the
+`vite/sourcesApi.ts` middleware), with the auth header attached. The
+response is normalized: an array passes through, a single object is
+wrapped in a one-element array so the chart engine can use it as a row,
+anything else is treated as an empty array.
+
+**Security model:**
+- The auth header never leaves the dev server. The `GET /api/sources`
+  response strips it before sending to the browser.
+- Outbound API calls run with a 15s timeout and 4 MB response cap.
+- Docs-link fetches run with 8s timeout and 1 MB cap, text/JSON/XML/YAML
+  only.
+
+For the full design rationale see
+[`docs/API_REGISTRATION.md`](./docs/API_REGISTRATION.md).
 
 ## Configuration
 

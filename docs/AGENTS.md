@@ -34,29 +34,33 @@ just like the built-ins.
 | `src/registry/components.ts` | Component descriptors the planner may emit | Adding/changing a component |
 | `src/registry/capabilities.ts` | Built-in capability catalog | Adding a mock data source |
 | `src/registry/validation.ts` | Deterministic D-*/A-* rules | Adding a structural check |
-| `src/data/capabilityResolver.ts` | `name → data` for built-in caps | Adding a resolver |
-| `src/data/sourcesRegistry.tsx` | React store for BYOD sources | Adding BYOD state logic |
-| `src/data/dynamicCapabilities.ts` | `SourceRecord → CapabilityDescriptor` | Changing how sources appear to planner |
-| `src/data/resolveValue.ts` | `value OR valueRef` → primitive, with `where` filter | Changing how data is bound |
+| `src/data/capabilityResolver.ts` | `name → data` for built-in caps + async API resolvers | Adding a resolver |
+| `src/data/sourcesRegistry.tsx` | React store for BYOD + BYOAPI sources | Adding source state logic |
+| `src/data/dynamicCapabilities.ts` | `SourceRecord → CapabilityDescriptor[]` (one per endpoint for APIs) | Changing how sources appear to planner |
+| `src/data/resolveValue.ts` | Renderer-side data resolution (with `where` filter) | Changing how `data.where` works |
 | `src/planner/openaiPlanner.ts` | The LLM integration. **System prompt lives here.** | Changing the LLM, prompt, retry strategy |
 | `src/planner/mockPlanner.ts` | Deterministic offline planner | Changing fallback behavior |
 | `src/planner/planner.ts` | `Planner` interface + `fetchOpenAICompletion` | Adding a new planner type |
 | `src/renderer/NodeRenderer.tsx` | Type → component dispatch | Adding a component case |
-| `src/renderer/leaves/*.tsx` | One file per leaf component | Changing how a component renders |
-| `src/renderer/resolveValue.ts` | Renderer-side data resolution (with `where` filter) | Changing how `data.where` works |
+| `src/renderer/leaves/*.tsx` | One file per leaf component (all async-aware) | Changing how a component renders |
 | `src/renderer/format.ts` | Number formatters (currency, percent, axis ticks) | Adding a new number format |
 | `src/design/tokens.css` | The full design-token vocabulary | Adding a token |
 | `src/design/global.css` | Reset + base styles | Global style changes |
-| `src/app/App.tsx` | Top-level component, planner context, BYOD merge | Changing app shell or planner wiring |
-| `src/app/DataSourceDialog.tsx` | BYOD upload UI (drag/drop, preview) | Changing BYOD UI |
+| `src/app/App.tsx` | Top-level component, planner context, BYOD + BYOAPI merge | Changing app shell or planner wiring |
+| `src/app/DataSourceDialog.tsx` | BYOD + BYOAPI UI (drag/drop, preview, API form) | Changing source UI |
 | `vite/apiProxy.ts` | `/api/chat` → upstream LLM (server-side auth) | Changing LLM proxy |
-| `vite/sourcesApi.ts` | `/api/sources` CRUD + schema inference (BYOD) | Changing BYOD API |
+| `vite/sourcesApi.ts` | `/api/sources` CRUD + schema inference + live API call endpoint | Changing source API |
+| `vite/apiExtractor.ts` | LLM-driven API endpoint extraction (focused system prompt) | Changing how endpoints are derived |
+| `vite/docsFetcher.ts` | URL fetch with timeout, size cap, HTML strip | Changing docs link handling |
+| `vite/apiCaller.ts` | Live API call execution + in-memory cache + param substitution | Changing live-call behavior |
 | `vite.config.ts` | Vite config, plugin order, dev server port | Changing dev setup |
 | `scripts/smoke.ts` | E2E pipeline test (MockPlanner) | Adding a smoke case |
 | `scripts/test-table-alias.mjs` | Verifies `lookupKey` aliasing | When aliasing changes |
 | `scripts/test-where-aggregate.mjs` | Verifies `where` + chart aggregation | When filtering/aggregation changes |
 | `scripts/test-json-parse.mjs` | Verifies the LLM JSON extractor (fences, think blocks, trailing prose, array wrappers) | When the LLM output parser changes |
+| `scripts/test-api-registration.mjs` | End-to-end test: register API → call endpoint → cache hit → fresh bypass | When the BYOAPI flow changes |
 | `samples/hourly_product_mix.csv` | 336-row test fixture | Re-generate via `node scripts/gen-hourly-mix.mjs` |
+| `docs/API_REGISTRATION.md` | Design doc for the BYOAPI flow | When the API registration design changes |
 
 ## Three mental models
 
@@ -163,8 +167,11 @@ node scripts/test-where-aggregate.mjs
 # Run the LLM JSON extractor tests (no dev server needed)
 node scripts/test-json-parse.mjs
 
-# Run the table field-name alias tests (no dev server needed)
-node scripts/test-table-alias.mjs
+# Run the table field-name alias tests (uses tsx for path-alias resolution)
+npx tsx scripts/test-table-alias.mjs
+
+# Run the BYOAPI end-to-end test (dev server must be up)
+node scripts/test-api-registration.mjs
 
 # Regenerate the sample CSV
 node scripts/gen-hourly-mix.mjs

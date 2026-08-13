@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Chart as ChartNode } from "@/dsl/schema";
-import { resolveRows } from "@/renderer/resolveValue";
+import { resolveRowsAsync } from "@/renderer/resolveValue";
 import { formatAxisTick, shortDate } from "@/renderer/format";
 import s from "@/renderer/renderer.module.css";
 
@@ -97,7 +97,30 @@ function arcPath(
 }
 
 export function ChartView({ node }: Props) {
-  const rows = useMemo(() => resolveRows(node.data), [node.data]);
+  // Async data load — covers BOTH in-memory CSV/JSON rows and live API
+  // responses. The resolver normalizes both into an array of records.
+  const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    resolveRowsAsync(node.data)
+      .then((r) => {
+        if (!cancelled) setRows(r);
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadError((e as Error).message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [node.data]);
+
   const isPie = node.kind === "pie";
   const pieValueKey = Array.isArray(node.y) ? node.y[0]! : node.y;
   const allYKeys = Array.isArray(node.y) ? node.y : [node.y];
@@ -315,6 +338,12 @@ export function ChartView({ node }: Props) {
         )}
       </div>
 
+      {loadError && (
+        <div className={s["gir-chart__error"]} role="alert">
+          {loadError}
+        </div>
+      )}
+
       <div className={s["gir-chart__svg-wrap"]}>
         <svg
           className={s["gir-chart__svg"]}
@@ -465,6 +494,11 @@ export function ChartView({ node }: Props) {
             })
           )}
         </svg>
+        {loading && (
+          <div className={s["gir-chart__loading"]} aria-live="polite">
+            Loading…
+          </div>
+        )}
       </div>
 
       <div className={s["gir-chart__source"]}>

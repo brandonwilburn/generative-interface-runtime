@@ -350,6 +350,45 @@
   color: var(--color-fg-muted);
 }
 
+.gir-chart__loading {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--color-fg-muted);
+  background: var(--color-bg-surface);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+  pointer-events: none;
+}
+
+.gir-chart__error {
+  font-size: var(--text-xs);
+  color: var(--color-status-bad);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-surface-2);
+  border-left: 2px solid var(--color-status-bad);
+  border-radius: var(--radius-xs);
+  margin-bottom: var(--space-2);
+}
+
+.gir-table__error {
+  font-size: var(--text-xs);
+  color: var(--color-status-bad);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-surface-2);
+  border-left: 2px solid var(--color-status-bad);
+  border-radius: var(--radius-xs);
+  margin-bottom: var(--space-2);
+}
+
+.gir-metric__error {
+  font-size: var(--text-xs);
+  color: var(--color-status-bad);
+  margin-top: var(--space-1);
+}
+
 /* ============================================================
    Table
    ============================================================ */
