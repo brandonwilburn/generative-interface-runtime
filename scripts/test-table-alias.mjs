@@ -2,7 +2,7 @@
  * Test the TableView aliasing layer without a browser.
  * Mimics what the planner produces, runs the resolver, and prints the cell values.
  */
-import { lookupKey } from "../src/renderer/resolveValue.js";
+import { lookupKey } from "../src/renderer/resolveValue.ts";
 
 const productRow = { id: "p_brisket", name: "Brisket plate", category: "mains", orders: 312, revenue: 9360 };
 const catRow = { category: "mains", orders: 1209, revenue: 24382, share: 0.875 };

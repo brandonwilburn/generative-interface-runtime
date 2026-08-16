@@ -41,7 +41,7 @@ archive/
 .env.local.*
 
 # user-uploaded data sources (BYOD feature)
-data/
+/data/
 
 # build output
 dist/

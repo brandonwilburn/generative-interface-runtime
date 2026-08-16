@@ -4,6 +4,8 @@ import { MetricCardView } from "./leaves/MetricCardView";
 import { ChartView } from "./leaves/ChartView";
 import { TableView } from "./leaves/TableView";
 import { TextView } from "./leaves/TextView";
+import { CodeBlockView } from "./leaves/CodeBlockView";
+import { SeparatorView } from "./leaves/SeparatorView";
 import { InsightView } from "./leaves/InsightView";
 import { ComparisonView } from "./leaves/ComparisonView";
 import { SectionView } from "./SectionView";
@@ -14,9 +16,8 @@ interface Props {
 }
 
 /**
- * The dispatcher. Looks up the registered component for a node's `type`
- * and renders it. If a type is unknown the renderer reports it rather
- * than silently dropping it.
+ * Dispatches a validated node to its renderer. If a type is unknown, the
+ * renderer reports it rather than silently dropping it.
  */
 export function NodeRenderer({ node }: Props) {
   switch (node.type) {
@@ -32,6 +33,10 @@ export function NodeRenderer({ node }: Props) {
       return <TableView node={node} />;
     case "text":
       return <TextView node={node} />;
+    case "codeBlock":
+      return <CodeBlockView node={node} />;
+    case "separator":
+      return <SeparatorView node={node} />;
     case "insight":
       return <InsightView node={node} />;
     case "comparison":

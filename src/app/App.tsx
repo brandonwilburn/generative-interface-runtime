@@ -13,7 +13,6 @@ import { validateSpec } from "@/registry/validation";
 import { DashboardSpec, type DashboardSpec as DashboardSpecT } from "@/dsl/schema";
 import { useSources } from "@/data/sourcesRegistry";
 import { capabilitiesFromSources } from "@/data/dynamicCapabilities";
-import { setDynamicResolvers } from "@/data/capabilityResolver";
 import { DataSourceDialog } from "./DataSourceDialog";
 import s from "./app.module.css";
 
@@ -23,6 +22,8 @@ const EXAMPLES = [
   "When are we busiest?",
   "Who are our top customers?",
   "Show me category mix",
+  "Show all chart types",
+  "Build the Northstar annual performance dashboard",
 ];
 
 interface ResultState {
@@ -41,20 +42,6 @@ export function App() {
 
   const sourcesApi = useSources();
   const planner = useMemo(() => createPlanner(), []);
-
-  // Keep the resolver's dynamic map in sync with the in-memory row cache.
-  // The capability resolver is module-level so we have to push from React;
-  // this effect does that whenever sources/rows change.
-  useEffect(() => {
-    const map: Record<string, () => unknown> = {};
-    for (const s of sourcesApi.sources) {
-      const rows = sourcesApi.rowsById[s.id];
-      if (rows) {
-        map[s.capability] = () => rows;
-      }
-    }
-    setDynamicResolvers(map);
-  }, [sourcesApi.sources, sourcesApi.rowsById]);
 
   // Capabilities advertised to the planner = static catalog + dynamic ones.
   const allCapabilities = useMemo(
