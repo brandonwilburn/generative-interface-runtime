@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Table as TableNode } from "@/dsl/schema";
-import { lookupKey, resolveRows } from "@/renderer/resolveValue";
+import { lookupKey } from "@/renderer/resolveValue";
+import { useResolvedRows } from "@/data/DatasetContext";
 import { formatValue } from "@/renderer/format";
 import s from "@/renderer/renderer.module.css";
 
@@ -18,7 +19,8 @@ function numeric(v: unknown): number | null {
 }
 
 export function TableView({ node }: Props) {
-  const allRows = useMemo(() => resolveRows(node.data), [node.data]);
+  const resolved = useResolvedRows(node.data);
+  const allRows = resolved.rows;
   const rows = useMemo(() => allRows.slice(0, node.pageSize), [allRows, node.pageSize]);
 
   // Pre-compute max for any "bar" column so each cell scales to the same baseline.
@@ -62,10 +64,10 @@ export function TableView({ node }: Props) {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {resolved.loading || resolved.error || rows.length === 0 ? (
               <tr>
                 <td className={s["gir-table__empty"]} colSpan={node.columns.length}>
-                  {node.emptyMessage}
+                  {resolved.loading ? "Running dataset query…" : resolved.error ?? node.emptyMessage}
                 </td>
               </tr>
             ) : (

@@ -1,63 +1,49 @@
 import { useMemo } from "react";
-import type { Chart as ChartNode } from "@/dsl/schema";
-import { resolveRows } from "@/renderer/resolveValue";
-import { formatAxisTick, shortDate } from "@/renderer/format";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Funnel,
+  FunnelChart,
+  LabelList,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  RadialBar,
+  RadialBarChart,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
+  Treemap,
+  XAxis,
+  YAxis,
+} from "recharts";
+import type {
+  Chart as ChartNode,
+  ChartSeries,
+  NumberFormat,
+} from "@/dsl/schema";
+import { useResolvedRows } from "@/data/DatasetContext";
+import { formatAxisTick, formatValue, shortDate } from "@/renderer/format";
 import s from "@/renderer/renderer.module.css";
 
 interface Props {
   node: ChartNode;
 }
 
-const PALETTE: Record<string, string> = {
-  "chart.1": "var(--color-chart-1)",
-  "chart.2": "var(--color-chart-2)",
-  "chart.3": "var(--color-chart-3)",
-  "chart.4": "var(--color-chart-4)",
-  "chart.5": "var(--color-chart-5)",
-  "chart.6": "var(--color-chart-6)",
-};
-
-const PADDING = { top: 14, right: 12, bottom: 32, left: 52 };
-
-function color(token: string | undefined, idx: number): string {
-  if (token && PALETTE[token]) return PALETTE[token];
-  const fallback = [`var(--color-chart-1)`, `var(--color-chart-2)`, `var(--color-chart-3)`, `var(--color-chart-4)`];
-  return fallback[idx % fallback.length]!;
-}
-
-function buildLinePath(
-  points: Array<{ x: number; y: number }>,
-): string {
-  if (points.length === 0) return "";
-  return points
-    .map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`))
-    .join(" ");
-}
-
-function buildAreaPath(
-  points: Array<{ x: number; y: number }>,
-  baseY: number,
-): string {
-  if (points.length === 0) return "";
-  const first = points[0]!;
-  const last = points[points.length - 1]!;
-  return [
-    `M ${first.x} ${baseY}`,
-    ...points.map((p) => `L ${p.x} ${p.y}`),
-    `L ${last.x} ${baseY}`,
-    "Z",
-  ].join(" ");
-}
-
-interface PieSlice {
-  label: string;
-  value: number;
-  startAngle: number; // radians, 0 = 12 o'clock, clockwise
-  endAngle: number;
-  color: string;
-}
-
-const PIE_COLORS = [
+const PALETTE = [
   "var(--color-chart-1)",
   "var(--color-chart-2)",
   "var(--color-chart-3)",
@@ -66,410 +52,342 @@ const PIE_COLORS = [
   "var(--color-chart-6)",
 ];
 
-function polar(cx: number, cy: number, r: number, angleRad: number): [number, number] {
-  return [cx + r * Math.sin(angleRad), cy - r * Math.cos(angleRad)];
+const TOKEN_COLORS: Record<string, string> = {
+  "chart.1": PALETTE[0]!,
+  "chart.2": PALETTE[1]!,
+  "chart.3": PALETTE[2]!,
+  "chart.4": PALETTE[3]!,
+  "chart.5": PALETTE[4]!,
+  "chart.6": PALETTE[5]!,
+};
+
+function seriesColor(series: ChartSeries, index: number): string {
+  return (series.color && TOKEN_COLORS[series.color]) ?? PALETTE[index % PALETTE.length]!;
 }
 
-function arcPath(
-  cx: number,
-  cy: number,
-  rOuter: number,
-  rInner: number,
-  startAngle: number,
-  endAngle: number,
-): string {
-  // Donut segment path. If rInner is 0 it's a pie slice.
-  const [x1, y1] = polar(cx, cy, rOuter, startAngle);
-  const [x2, y2] = polar(cx, cy, rOuter, endAngle);
-  const [x3, y3] = polar(cx, cy, rInner, endAngle);
-  const [x4, y4] = polar(cx, cy, rInner, startAngle);
-  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
-  if (rInner <= 0) {
-    return `M ${cx} ${cy} L ${x1} ${y1} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+function normalizedSeries(node: ChartNode): ChartSeries[] {
+  if (node.series) return node.series;
+  const keys = node.y ? (Array.isArray(node.y) ? node.y : [node.y]) : [];
+  return keys.map((key, index) => ({
+    key,
+    label: key,
+    color: node.seriesColors?.[index],
+    yAxisId: "primary",
+  }));
+}
+
+function normalizedRows(node: ChartNode, rows: Array<Record<string, unknown>>) {
+  // Preserve the prototype's implicit sum-by-category behavior for legacy
+  // bar/pie specs. The expressive `series` contract receives rows verbatim.
+  if (node.series || !["bar", "pie", "donut"].includes(node.kind)) return rows;
+  const xKey = node.xAxis?.key ?? node.x ?? "name";
+  const keys = normalizedSeries(node).map((series) => series.key);
+  const order: string[] = [];
+  const groups = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    const groupKey = String(row[xKey] ?? "");
+    let group = groups.get(groupKey);
+    if (!group) {
+      group = { [xKey]: row[xKey] };
+      groups.set(groupKey, group);
+      order.push(groupKey);
+    }
+    for (const key of keys) {
+      group[key] = Number(group[key] ?? 0) + Number(row[key] ?? 0);
+    }
   }
-  return [
-    `M ${x1} ${y1}`,
-    `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${x2} ${y2}`,
-    `L ${x3} ${y3}`,
-    `A ${rInner} ${rInner} 0 ${largeArc} 0 ${x4} ${y4}`,
-    "Z",
-  ].join(" ");
+  return order.map((key) => groups.get(key)!);
+}
+
+function tickFormatter(format: string | undefined) {
+  if (format === "date" || format === "shortDate") {
+    return (value: unknown) => shortDate(String(value));
+  }
+  if (format) return (value: unknown) => formatAxisTick(Number(value), format as NumberFormat);
+  return (value: unknown) => String(value);
+}
+
+function legendProps(position: "top" | "right" | "bottom" | "left") {
+  if (position === "left" || position === "right") {
+    return { align: position, verticalAlign: "middle" as const, layout: "vertical" as const };
+  }
+  return { align: "center" as const, verticalAlign: position, layout: "horizontal" as const };
+}
+
+function usesExternalSeriesLegend(node: ChartNode): boolean {
+  const position = node.options?.legendPosition ?? "bottom";
+  return (
+    (position === "top" || position === "bottom") &&
+    ["line", "area", "bar", "composed", "scatter", "radar"].includes(node.kind)
+  );
+}
+
+function SeriesLegend({ series }: { series: ChartSeries[] }) {
+  return (
+    <div className={s["gir-chart__legend"]} role="list" aria-label="Chart legend">
+      {series.map((item, index) => (
+        <div className={s["gir-chart__legend-item"]} role="listitem" key={item.key}>
+          <span className={s["gir-chart__legend-swatch"]} style={{ background: seriesColor(item, index) }} />
+          <span>{item.label ?? item.key}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChartExtras({ node, series }: { node: ChartNode; series: ChartSeries[] }) {
+  const showTooltip = node.options?.showTooltip ?? true;
+  const showLegend = node.options?.showLegend ?? node.showLegend;
+  const position = node.options?.legendPosition ?? "bottom";
+  return (
+    <>
+      {showTooltip && (
+        <Tooltip
+          contentStyle={{
+            background: "var(--color-bg-surface)",
+            border: "1px solid var(--color-border-subtle)",
+            borderRadius: "var(--radius-md)",
+            boxShadow: "var(--shadow-2)",
+            color: "var(--color-fg-primary)",
+            fontSize: "var(--text-xs)",
+          }}
+          formatter={(value, name, payload) => {
+            const payloadKey = typeof payload.dataKey === "string" ? payload.dataKey : undefined;
+            const config = series.find((item) => item.key === payloadKey)
+              ?? series.find((item) => item.label === String(name));
+            const axisFormat = node.yAxes?.find((axis) => axis.id === config?.yAxisId)?.format;
+            const scalar = Array.isArray(value) ? value[0] : value;
+            return [
+              formatValue(scalar, config?.format ?? axisFormat ?? node.yFormat),
+              config?.label ?? String(name),
+            ];
+          }}
+          labelFormatter={(label) => tickFormatter(node.xAxis?.format)(label)}
+        />
+      )}
+      {showLegend && !usesExternalSeriesLegend(node) && <Legend {...legendProps(position)} />}
+    </>
+  );
+}
+
+function CartesianView({ node, rows, series }: ChartBodyProps) {
+  const xAxis = node.xAxis ?? { key: node.x ?? "name", type: "category" as const, hide: false };
+  const yAxes = node.yAxes ?? [{ id: "primary", side: "left" as const, format: node.yFormat, hide: false }];
+  const common = {
+    data: rows,
+    margin: { top: 12, right: 18, bottom: xAxis.label ? 34 : 4, left: 6 },
+    accessibilityLayer: true,
+  };
+  const axes = (
+    <>
+      {(node.options?.showGrid ?? true) && <CartesianGrid stroke="var(--color-border-subtle)" strokeDasharray="3 3" vertical={false} />}
+      <XAxis
+        dataKey={xAxis.key}
+        type={xAxis.type}
+        hide={xAxis.hide}
+        tickFormatter={tickFormatter(xAxis.format)}
+        tick={{ fill: "var(--color-fg-muted)", fontSize: 11 }}
+        axisLine={{ stroke: "var(--color-border-default)" }}
+        tickLine={false}
+        label={xAxis.label ? { value: xAxis.label, position: "insideBottom", offset: -12 } : undefined}
+      />
+      {yAxes.map((axis) => (
+        <YAxis
+          key={axis.id}
+          yAxisId={axis.id}
+          orientation={axis.side}
+          hide={axis.hide}
+          domain={axis.domain}
+          tickFormatter={tickFormatter(axis.format)}
+          tick={{ fill: "var(--color-fg-muted)", fontSize: 11 }}
+          axisLine={false}
+          tickLine={false}
+          width={56}
+          label={axis.label ? { value: axis.label, angle: -90, position: axis.side === "right" ? "insideRight" : "insideLeft" } : undefined}
+        />
+      ))}
+    </>
+  );
+
+  const marks = series.map((item, index) => {
+    const type = node.kind === "composed" ? (item.type ?? "line") : node.kind;
+    const color = seriesColor(item, index);
+    const shared = {
+      dataKey: item.key,
+      name: item.label ?? item.key,
+      yAxisId: item.yAxisId ?? yAxes[0]?.id ?? "primary",
+    };
+    if (type === "bar") {
+      return <Bar key={`${type}-${item.key}`} {...shared} fill={color} stackId={item.stackId} radius={[3, 3, 0, 0]}>{item.showLabels && <LabelList dataKey={item.key} position="top" />}</Bar>;
+    }
+    if (type === "area") {
+      return <Area key={`${type}-${item.key}`} {...shared} type={item.curve ?? "monotone"} stroke={color} fill={color} fillOpacity={item.fillOpacity ?? 0.18} stackId={item.stackId} dot={item.showDots} />;
+    }
+    return <Line key={`${type}-${item.key}`} {...shared} type={item.curve ?? "monotone"} stroke={color} strokeWidth={2} dot={item.showDots ?? false}>{item.showLabels && <LabelList dataKey={item.key} position="top" />}</Line>;
+  });
+
+  const extras = <ChartExtras node={node} series={series} />;
+  if (node.kind === "bar") return <BarChart {...common}>{axes}{marks}{extras}</BarChart>;
+  if (node.kind === "area") return <AreaChart {...common}>{axes}{marks}{extras}</AreaChart>;
+  if (node.kind === "composed") return <ComposedChart {...common}>{axes}{marks}{extras}</ComposedChart>;
+  return <LineChart {...common}>{axes}{marks}{extras}</LineChart>;
+}
+
+interface ChartBodyProps {
+  node: ChartNode;
+  rows: Array<Record<string, unknown>>;
+  series: ChartSeries[];
+}
+
+function ScatterView({ node, rows, series }: ChartBodyProps) {
+  const xKey = node.xAxis?.key ?? node.x ?? "x";
+  const yAxes = node.yAxes ?? [{ id: "primary", side: "left" as const, format: node.yFormat, hide: false }];
+  return (
+    <ScatterChart margin={{ top: 12, right: 18, bottom: node.xAxis?.label ? 28 : 12, left: 18 }} accessibilityLayer>
+      {(node.options?.showGrid ?? true) && <CartesianGrid stroke="var(--color-border-subtle)" />}
+      <XAxis
+        type="number"
+        dataKey="x"
+        name={node.xAxis?.label ?? xKey}
+        tickFormatter={tickFormatter(node.xAxis?.format)}
+        label={node.xAxis?.label ? { value: node.xAxis.label, position: "insideBottom", offset: -18 } : undefined}
+      />
+      {yAxes.map((axis) => <YAxis key={axis.id} yAxisId={axis.id} type="number" dataKey="y" name={axis.label ?? axis.id} orientation={axis.side} domain={axis.domain} tickFormatter={tickFormatter(axis.format)} label={axis.label ? { value: axis.label, angle: -90, position: axis.side === "right" ? "insideRight" : "insideLeft" } : undefined} />)}
+      {series.map((item, index) => (
+        <Scatter
+          key={item.key}
+          name={item.label ?? item.key}
+          yAxisId={item.yAxisId ?? yAxes[0]?.id ?? "primary"}
+          fill={seriesColor(item, index)}
+          data={rows.map((row) => ({ x: Number(row[xKey]), y: Number(row[item.key]) }))}
+        />
+      ))}
+      <ChartExtras node={node} series={series} />
+    </ScatterChart>
+  );
+}
+
+function PieView({ node, rows, series }: ChartBodyProps) {
+  const item = series[0];
+  const nameKey = node.xAxis?.key ?? node.x ?? "name";
+  if (!item) return null;
+  return (
+    <PieChart accessibilityLayer>
+      <Pie
+        data={rows}
+        dataKey={item.key}
+        nameKey={nameKey}
+        name={item.label ?? item.key}
+        innerRadius={node.kind === "donut" ? "52%" : 0}
+        outerRadius="78%"
+        paddingAngle={1}
+      >
+        {rows.map((_, index) => <Cell key={index} fill={PALETTE[index % PALETTE.length]} />)}
+        {item.showLabels && <LabelList dataKey={nameKey} position="outside" />}
+      </Pie>
+      <ChartExtras node={node} series={series} />
+    </PieChart>
+  );
+}
+
+function RadarView({ node, rows, series }: ChartBodyProps) {
+  const xKey = node.xAxis?.key ?? node.x ?? "name";
+  return (
+    <RadarChart data={rows} outerRadius="70%" accessibilityLayer>
+      <PolarGrid stroke="var(--color-border-subtle)" />
+      <PolarAngleAxis dataKey={xKey} tick={{ fill: "var(--color-fg-muted)", fontSize: 11 }} />
+      <PolarRadiusAxis tick={{ fill: "var(--color-fg-muted)", fontSize: 10 }} />
+      {series.map((item, index) => <Radar key={item.key} dataKey={item.key} name={item.label ?? item.key} stroke={seriesColor(item, index)} fill={seriesColor(item, index)} fillOpacity={item.fillOpacity ?? 0.18} />)}
+      <ChartExtras node={node} series={series} />
+    </RadarChart>
+  );
+}
+
+function RadialBarView({ node, rows, series }: ChartBodyProps) {
+  const item = series[0];
+  const nameKey = node.xAxis?.key ?? node.x ?? "name";
+  if (!item) return null;
+  const radialRows = rows.map((row, index) => ({
+    ...row,
+    name: String(row[nameKey] ?? ""),
+    fill: PALETTE[index % PALETTE.length],
+  }));
+  return (
+    <RadialBarChart data={radialRows} innerRadius="18%" outerRadius="82%" startAngle={90} endAngle={-270} accessibilityLayer>
+      <RadialBar dataKey={item.key} name={item.label ?? item.key} background={{ fill: "var(--color-bg-subtle)" }} cornerRadius={6} fill={seriesColor(item, 0)}>{item.showLabels && <LabelList dataKey={item.key} position="insideStart" />}</RadialBar>
+      <ChartExtras node={node} series={series} />
+    </RadialBarChart>
+  );
+}
+
+function FunnelView({ node, rows, series }: ChartBodyProps) {
+  const item = series[0];
+  const nameKey = node.xAxis?.key ?? node.x ?? "name";
+  if (!item) return null;
+  return (
+    <FunnelChart accessibilityLayer>
+      <Funnel data={rows} dataKey={item.key} nameKey={nameKey} name={item.label ?? item.key} isAnimationActive={false}>
+        {rows.map((_, index) => <Cell key={index} fill={PALETTE[index % PALETTE.length]} />)}
+        <LabelList position="right" fill="var(--color-fg-secondary)" dataKey={nameKey} />
+      </Funnel>
+      <ChartExtras node={node} series={series} />
+    </FunnelChart>
+  );
+}
+
+function ChartBody(props: ChartBodyProps) {
+  const { node, rows, series } = props;
+  if (node.kind === "pie" || node.kind === "donut") return <PieView {...props} />;
+  if (node.kind === "radar") return <RadarView {...props} />;
+  if (node.kind === "radialBar") return <RadialBarView {...props} />;
+  if (node.kind === "funnel") return <FunnelView {...props} />;
+  if (node.kind === "treemap") {
+    const item = series[0];
+    return item ? <Treemap data={rows} dataKey={item.key} nameKey={node.xAxis?.key ?? node.x ?? "name"} fill={seriesColor(item, 0)} stroke="var(--color-bg-surface)" aspectRatio={4 / 3}><ChartExtras node={node} series={series} /></Treemap> : null;
+  }
+  if (node.kind === "scatter") return <ScatterView {...props} />;
+  return <CartesianView {...props} />;
 }
 
 export function ChartView({ node }: Props) {
-  const rows = useMemo(() => resolveRows(node.data), [node.data]);
-  const isPie = node.kind === "pie";
-  const pieValueKey = Array.isArray(node.y) ? node.y[0]! : node.y;
-  const allYKeys = Array.isArray(node.y) ? node.y : [node.y];
-
-  // Aggregate by `x` for bar and pie. Line/area pass rows through as-is
-  // because each row is meant to be a single observation in time. For a
-  // pie with `x: "product"` over 48 rows-per-day, this collapses to
-  // one slice per product. For a bar with `x: "date"` over 12 hours/day
-  // and 4 products, this sums to one bar per date.
-  const aggregatedRows = useMemo(() => {
-    if (node.kind !== "bar" && node.kind !== "pie") return rows;
-    const order: string[] = [];
-    const sums = new Map<string, Record<string, unknown>>();
-    for (const r of rows) {
-      const key = String(r[node.x] ?? "");
-      let bucket = sums.get(key);
-      if (!bucket) {
-        bucket = { [node.x]: r[node.x] };
-        sums.set(key, bucket);
-        order.push(key);
-      }
-      for (const k of allYKeys) {
-        const prev = Number(bucket[k] ?? 0);
-        bucket[k] = prev + Number(r[k] ?? 0);
-      }
-    }
-    return order.map((k) => sums.get(k)!);
-  }, [rows, node.x, node.kind, allYKeys]);
-
-  // Pie slice geometry — uses aggregated rows so duplicate x values
-  // collapse to one slice.
-  const pieSlices: PieSlice[] = useMemo(() => {
-    if (!isPie) return [];
-    const source = aggregatedRows;
-    const total = source.reduce(
-      (acc, r) => acc + Math.max(0, Number(r[pieValueKey] ?? 0)),
-      0,
-    );
-    if (total <= 0) return [];
-    let cursor = 0;
-    return source.map((r, i) => {
-      const v = Math.max(0, Number(r[pieValueKey] ?? 0));
-      const sweep = (v / total) * Math.PI * 2;
-      const start = cursor;
-      cursor += sweep;
-      return {
-        label: String(r[node.x] ?? ""),
-        value: v,
-        startAngle: start,
-        endAngle: cursor,
-        color: PIE_COLORS[i % PIE_COLORS.length]!,
-      };
-    });
-  }, [aggregatedRows, pieValueKey, node.x, isPie]);
-  const pieTotal = useMemo(
-    () => pieSlices.reduce((acc, s) => acc + s.value, 0),
-    [pieSlices],
-  );
-
-  // ---------- Pie / donut branch ----------
-  if (isPie) {
-    const width = 720;
-    const height = node.height;
-    const cx = width / 2;
-    const cy = height / 2;
-    const rOuter = Math.min(width, height) / 2 - 16;
-    const rInner = rOuter * 0.55; // donut hole — total lives inside
-    return (
-      <div className={s["gir-chart"]} role="figure" aria-label={node.title}>
-        <div className={s["gir-chart__header"]}>
-          <div className={s["gir-chart__title"]}>{node.title}</div>
-          {node.showLegend && pieSlices.length > 0 && (
-            <div className={s["gir-chart__legend"]}>
-              {pieSlices.map((sl, i) => (
-                <span key={`${i}-${sl.label}`} className={s["gir-chart__legend-item"]}>
-                  <span
-                    className={s["gir-chart__legend-swatch"]}
-                    style={{ background: sl.color }}
-                    aria-hidden
-                  />
-                  {sl.label}
-                  <span className={s["gir-chart__legend-meta"]}>
-                    {Math.round((sl.value / pieTotal) * 100)}%
-                  </span>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className={s["gir-chart__svg-wrap"]}>
-          <svg
-            className={s["gir-chart__svg"]}
-            viewBox={`0 0 ${width} ${height}`}
-            preserveAspectRatio="xMidYMid meet"
-            role="img"
-            aria-label={`${node.title} pie chart`}
-          >
-            {pieSlices.length === 0 ? (
-              <text
-                x={cx}
-                y={cy}
-                className={s["gir-chart__axis-label"]}
-                textAnchor="middle"
-                dominantBaseline="middle"
-              >
-                No data
-              </text>
-            ) : (
-              <>
-                {pieSlices.map((sl, i) => (
-                  <path
-                    // Index-prefixed so two slices with the same label
-                    // (which can happen if aggregation is bypassed or
-                    // the LLM emits a non-aggregating x) don't trip
-                    // React's duplicate-key warning.
-                    key={`${i}-${sl.label}`}
-                    d={arcPath(cx, cy, rOuter, rInner, sl.startAngle, sl.endAngle)}
-                    fill={sl.color}
-                    stroke="var(--color-bg-surface)"
-                    strokeWidth={1.5}
-                  >
-                    <title>
-                      {sl.label}: {sl.value.toLocaleString()} ({Math.round((sl.value / pieTotal) * 100)}%)
-                    </title>
-                  </path>
-                ))}
-                <text
-                  x={cx}
-                  y={cy - 6}
-                  className={s["gir-chart__pie-total-label"]}
-                  textAnchor="middle"
-                >
-                  Total
-                </text>
-                <text
-                  x={cx}
-                  y={cy + 14}
-                  className={s["gir-chart__pie-total-value"]}
-                  textAnchor="middle"
-                >
-                  {formatAxisTick(pieTotal, node.yFormat)}
-                </text>
-              </>
-            )}
-          </svg>
-        </div>
-        <div className={s["gir-chart__source"]}>
-          Source · <code>{node.data.capability}</code>
-        </div>
-      </div>
-    );
-  }
-
-  // ---------- Line / bar / area branch ----------
-  const seriesKeys = allYKeys;
-  const chartRows = aggregatedRows;
-  const seriesData = useMemo(
-    () =>
-      seriesKeys.map((k) => ({
-        key: k,
-        values: chartRows.map((r) => Number(r[k] ?? 0)),
-      })),
-    [seriesKeys, chartRows],
-  );
-
-  const width = 720;
-  const height = node.height;
-  const innerW = width - PADDING.left - PADDING.right;
-  const innerH = height - PADDING.top - PADDING.bottom;
-
-  const allValues = seriesData.flatMap((s) => s.values);
-  const yMax = Math.max(0, ...allValues);
-  const yMin = 0;
-  const yRange = yMax - yMin || 1;
-  const xCount = Math.max(chartRows.length, 1);
-
-  const xAt = (i: number): number =>
-    PADDING.left + (innerW * i) / Math.max(xCount - 1, 1);
-  // For bar/pie-style slot positioning the first data point sits at the
-  // CENTER of the first slot, not at the left edge. Without this the first
-  // bar's left edge lands at -innerW/(2*xCount) — outside the inner area —
-  // and after SVG stretching it visually collides with the y-axis labels.
-  const slotW = innerW / xCount;
-  const xAtSlot = (i: number): number => PADDING.left + slotW * (i + 0.5);
-  const yAt = (v: number): number =>
-    PADDING.top + innerH - ((v - yMin) / yRange) * innerH;
-
-  const ticks = 4;
-  const yTicks = Array.from({ length: ticks + 1 }, (_, i) => yMin + (yRange * i) / ticks);
-
-  const xLabelEvery = Math.max(1, Math.ceil(xCount / 6));
-  const showXLabel = (i: number): boolean => i % xLabelEvery === 0 || i === xCount - 1;
-
-  const seriesColors = seriesKeys.map((_, i) =>
-    color(node.seriesColors?.[i], i),
-  );
+  const resolvedState = useResolvedRows(node.data);
+  const resolved = resolvedState.rows;
+  const series = useMemo(() => normalizedSeries(node), [node]);
+  const rows = useMemo(() => normalizedRows(node, resolved), [node, resolved]);
+  const source = Array.isArray(node.data)
+    ? `Inline JSON · ${rows.length} rows`
+    : "dataset" in node.data
+      ? `Dataset · ${node.data.dataset}`
+      : `Source · ${node.data.capability}`;
+  const showLegend = node.options?.showLegend ?? node.showLegend;
+  const legendPosition = node.options?.legendPosition ?? "bottom";
+  const externalLegend = showLegend && usesExternalSeriesLegend(node);
 
   return (
     <div className={s["gir-chart"]} role="figure" aria-label={node.title}>
       <div className={s["gir-chart__header"]}>
-        <div className={s["gir-chart__title"]}>{node.title}</div>
-        {node.showLegend && seriesKeys.length > 0 && (
-          <div className={s["gir-chart__legend"]}>
-            {seriesKeys.map((k, i) => (
-              <span key={k} className={s["gir-chart__legend-item"]}>
-                <span
-                  className={s["gir-chart__legend-swatch"]}
-                  style={{ background: seriesColors[i] }}
-                  aria-hidden
-                />
-                {k}
-              </span>
-            ))}
-          </div>
+        <div>
+          <div className={s["gir-chart__title"]}>{node.title}</div>
+          {node.description && <div className={s["gir-chart__description"]}>{node.description}</div>}
+        </div>
+      </div>
+      {externalLegend && legendPosition === "top" && <SeriesLegend series={series} />}
+      <div className={s["gir-chart__canvas"]} style={{ height: node.height }}>
+        {resolvedState.loading ? (
+          <div className={s["gir-chart__empty"]}>Running dataset query…</div>
+        ) : resolvedState.error ? (
+          <div className={s["gir-chart__empty"]}>{resolvedState.error}</div>
+        ) : rows.length === 0 || series.length === 0 ? (
+          <div className={s["gir-chart__empty"]}>No data</div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+            <ChartBody node={node} rows={rows} series={series} />
+          </ResponsiveContainer>
         )}
       </div>
-
-      <div className={s["gir-chart__svg-wrap"]}>
-        <svg
-          className={s["gir-chart__svg"]}
-          viewBox={`0 0 ${width} ${height}`}
-          preserveAspectRatio="none"
-          role="img"
-          aria-label={`${node.title} chart`}
-        >
-          {yTicks.map((t, i) => {
-            // Skip the "0" baseline tick at the bottom — it would collide
-            // with the x-axis labels.
-            if (i === 0) return null;
-            return (
-              <g key={i}>
-                <line
-                  x1={PADDING.left}
-                  x2={width - PADDING.right}
-                  y1={yAt(t)}
-                  y2={yAt(t)}
-                  className={s["gir-chart__grid-line"]}
-                />
-                <text
-                  x={PADDING.left - 8}
-                  y={yAt(t)}
-                  className={s["gir-chart__axis-label"]}
-                  textAnchor="end"
-                  dominantBaseline="middle"
-                >
-                  {formatAxisTick(t, node.yFormat)}
-                </text>
-              </g>
-            );
-          })}
-
-          {chartRows.length === 0 && (
-            <text
-              x={(PADDING.left + width - PADDING.right) / 2}
-              y={(PADDING.top + height - PADDING.bottom) / 2}
-              className={s["gir-chart__axis-label"]}
-              textAnchor="middle"
-              dominantBaseline="middle"
-            >
-              No data
-            </text>
-          )}
-
-          {chartRows.map((r, i) =>
-            showXLabel(i) ? (
-              <text
-                key={`x-${i}`}
-                // For a bar chart the bar center is xAtSlot(i) — the label
-                // belongs there. For a line/area chart the data point is
-                // at xAt(i) — the label belongs there. Mixing these up is
-                // what made the labels look detached from the bars.
-                x={node.kind === "bar" ? xAtSlot(i) : xAt(i)}
-                y={height - PADDING.bottom + 22}
-                className={s["gir-chart__axis-label"]}
-                // The first and last labels can collide with the chart
-                // border. Left-anchor the first, right-anchor the last so
-                // they stay inside the viewBox even on a tight fit.
-                textAnchor={
-                  i === 0
-                    ? "start"
-                    : i === chartRows.length - 1
-                      ? "end"
-                      : "middle"
-                }
-              >
-                {shortDate(String(r[node.x] ?? ""))}
-              </text>
-            ) : null,
-          )}
-
-          {node.kind === "bar" ? (
-            seriesData.map((series, si) => {
-              // Reserve a 1.2× gap between adjacent bars within a slot so
-              // groups of bars don't visually fuse.
-              const barW = (slotW * 0.8) / Math.max(seriesKeys.length, 1);
-              const seriesOffset =
-                (si - (seriesKeys.length - 1) / 2) * barW;
-              return series.values.map((v, i) => {
-                const centerX = xAtSlot(i) + seriesOffset;
-                const x = centerX - barW / 2;
-                const y = yAt(v);
-                const label = String(chartRows[i]?.[node.x] ?? "");
-                return (
-                  <g key={`${series.key}-${i}`}>
-                    {/* Wide invisible hit area for hover/tooltip + accessibility */}
-                    <rect
-                      x={x}
-                      y={y}
-                      width={barW}
-                      height={Math.max(0, height - PADDING.bottom - y)}
-                      fill={seriesColors[si]}
-                      rx={2}
-                    >
-                      <title>
-                        {label}
-                        {seriesKeys.length > 1 ? ` · ${series.key}` : ""}: {formatAxisTick(v, node.yFormat)}
-                      </title>
-                    </rect>
-                  </g>
-                );
-              });
-            })
-          ) : (
-            seriesData.map((series, si) => {
-              const points = series.values.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
-              return (
-                <g key={series.key}>
-                  {node.kind === "area" && (
-                    <path
-                      d={buildAreaPath(points, PADDING.top + innerH)}
-                      fill={seriesColors[si]}
-                      opacity={0.14}
-                    />
-                  )}
-                  <path
-                    d={buildLinePath(points)}
-                    stroke={seriesColors[si]}
-                    strokeWidth={2}
-                    fill="none"
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
-                  {points.map((p, i) => {
-                    const v = series.values[i]!;
-                    const label = String(chartRows[i]?.[node.x] ?? "");
-                    return (
-                      <circle
-                        key={i}
-                        cx={p.x}
-                        cy={p.y}
-                        r={2.5}
-                        fill="var(--color-bg-surface)"
-                        stroke={seriesColors[si]}
-                        strokeWidth={1.5}
-                      >
-                        <title>
-                          {label}
-                          {seriesKeys.length > 1 ? ` · ${series.key}` : ""}: {formatAxisTick(v, node.yFormat)}
-                        </title>
-                      </circle>
-                    );
-                  })}
-                </g>
-              );
-            })
-          )}
-        </svg>
-      </div>
-
-      <div className={s["gir-chart__source"]}>
-        Source · <code>{node.data.capability}</code>
-      </div>
+      {externalLegend && legendPosition === "bottom" && <SeriesLegend series={series} />}
+      <div className={s["gir-chart__source"]}>{source}</div>
+      {node.caption && <div className={s["gir-chart__caption"]}>{node.caption}</div>}
     </div>
   );
 }

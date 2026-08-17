@@ -1,14 +1,11 @@
 /**
  * Component registry.
  *
- * Every component the planner may emit MUST be registered here. This is
- * the source of truth that:
- *   - the renderer uses to map type → React component
- *   - the planner receives as context (via `summarizeForPlanner`)
- *   - the validator references when enforcing composition rules
+ * Every component the planner may emit MUST be registered here so its purpose
+ * and usage guidance can be included in planner context.
  *
- * Adding a new component = add an entry here + add a renderer branch.
- * The validator and planner learn about it automatically.
+ * Adding a component also requires a schema, renderer branch, validation, and
+ * tests. See README.md for the complete checklist.
  */
 
 export type ComponentCategory = "metric" | "viz" | "data" | "narrative" | "composite";
@@ -39,7 +36,7 @@ export const COMPONENT_REGISTRY: ComponentDescriptor[] = [
   {
     type: "dashboard",
     category: "composite",
-    purpose: "Root container. Holds the entire generated interface.",
+    purpose: "Root container. Holds optional hero presentation, named datasets, and body sections.",
     useWhen: ["Always — the planner always emits a dashboard as the top-level spec."],
     avoidWhen: ["Never at non-root positions."],
     allowedParents: ["root"],
@@ -49,7 +46,25 @@ export const COMPONENT_REGISTRY: ComponentDescriptor[] = [
     example: {
       type: "dashboard",
       title: "Monthly performance",
-      children: [{ type: "section", columns: 1, children: [] }],
+      hero: {
+        eyebrow: "Monthly review",
+        variant: "banner",
+        background: { type: "tone", tone: "neutral" },
+      },
+      children: [
+        {
+          type: "section",
+          columns: 1,
+          children: [
+            {
+              type: "metricCard",
+              label: "Revenue",
+              value: 48210,
+              format: "currency",
+            },
+          ],
+        },
+      ],
     },
   },
   {
@@ -59,10 +74,11 @@ export const COMPONENT_REGISTRY: ComponentDescriptor[] = [
     useWhen: [
       "Grouping 2–4 related items (e.g. hero metrics, charts, a table + insight).",
       "Establishing visual rhythm between dashboard regions.",
+      "Composing full-width, asymmetric, and chart-plus-narrative tile arrangements.",
     ],
     avoidWhen: [
-      "A single item (just place it directly in a section with columns=1).",
-      "Wrapping a single metricCard by itself at the dashboard level.",
+      "Adding a title-only wrapper around one item; use a minimal one-column section instead.",
+      "Using extra sections where one coherent grid would communicate the grouping.",
     ],
     allowedParents: ["dashboard"],
     canBeDashboardChild: true,
@@ -89,7 +105,7 @@ export const COMPONENT_REGISTRY: ComponentDescriptor[] = [
     purpose: "A single labeled number, optionally with a delta vs. another period.",
     useWhen: [
       "Communicating one number clearly.",
-      "Establishing a hero metric for the dashboard.",
+      "Establishing a headline metric for the dashboard body.",
     ],
     avoidWhen: [
       "Showing many numbers at once (use a table).",
@@ -111,11 +127,13 @@ export const COMPONENT_REGISTRY: ComponentDescriptor[] = [
   {
     type: "chart",
     category: "viz",
-    purpose: "A time-series or category chart (line / bar / area / pie).",
+    purpose: "A Recharts-backed visualization configured entirely through JSON.",
     useWhen: [
-      "Showing a trend over time (line, area).",
-      "Comparing categories (bar, pie).",
-      "Showing part-to-whole proportions across a small number of categories (pie, ≤6 slices).",
+      "Showing trends (line, area), comparisons (bar, composed), or relationships (scatter).",
+      "Showing part-to-whole or hierarchical data (pie, donut, funnel, treemap).",
+      "Showing multivariate or radial data (radar, radialBar).",
+      "Combining multiple series, stacks, or y-axes in one chart.",
+      "Visualizing a named dataset produced by the SQLite query compiler.",
     ],
     avoidWhen: [
       "Showing fewer than 3 data points (use a metricCard or comparison).",
@@ -130,10 +148,23 @@ export const COMPONENT_REGISTRY: ComponentDescriptor[] = [
       type: "chart",
       kind: "line",
       title: "Daily revenue",
+      description: "Actual revenue over the selected period.",
+      caption: "Use the trend to identify acceleration or unusual daily movement.",
       data: { capability: "merchant.getRevenueSeries", params: { range: "30d" } },
-      x: "date",
-      y: "revenue",
-      yFormat: "currency",
+      xAxis: { key: "date", type: "category" },
+      yAxes: [{ id: "primary", format: "currency", side: "left" }],
+      series: [
+        {
+          key: "revenue",
+          label: "Revenue",
+          type: "line",
+          color: "chart.1",
+          yAxisId: "primary",
+        },
+      ],
+      options: { showGrid: true, showLegend: true, showTooltip: true },
+      height: 280,
+      layout: { columnSpan: 8, rowSpan: 1 },
     },
   },
   {
@@ -142,6 +173,7 @@ export const COMPONENT_REGISTRY: ComponentDescriptor[] = [
     purpose: "A compact tabular view of multi-row structured data.",
     useWhen: [
       "Listing items with several attributes (top products, recent orders).",
+      "Showing row-level or aggregated results from a named dataset.",
     ],
     avoidWhen: ["Fewer than 3 rows (use text or insight instead)."],
     allowedParents: ["section"],
@@ -165,6 +197,7 @@ export const COMPONENT_REGISTRY: ComponentDescriptor[] = [
     purpose: "A short paragraph or heading. Explanatory copy.",
     useWhen: [
       "Setting context, summarizing a finding, or labeling a section.",
+      "Placing interpretation beside or underneath a chart by assigning a tile span.",
     ],
     avoidWhen: ["Long-form content (keep under ~3 sentences)."],
     allowedParents: ["section"],
@@ -173,8 +206,56 @@ export const COMPONENT_REGISTRY: ComponentDescriptor[] = [
     interactive: false,
     example: {
       type: "text",
+      title: "What changed",
       content: "Revenue dipped mid-month due to a weather event and recovered by week 4.",
       tone: "neutral",
+      layout: { columnSpan: 4, padding: "comfortable", verticalAlign: "center" },
+    },
+  },
+  {
+    type: "codeBlock",
+    category: "narrative",
+    purpose: "A safe, non-executable code or configuration example with an optional title and caption.",
+    useWhen: [
+      "Showing JSON, SQL examples, formulas, commands, or implementation details inside a dashboard.",
+      "Giving the reader a reproducible snippet alongside analysis.",
+    ],
+    avoidWhen: [
+      "Showing ordinary prose (use text).",
+      "Attempting to execute code — codeBlock is display-only.",
+    ],
+    allowedParents: ["section"],
+    canBeDashboardChild: false,
+    isLeaf: true,
+    interactive: false,
+    example: {
+      type: "codeBlock",
+      title: "Dataset definition",
+      language: "json",
+      code: "{\n  \"source\": \"user.website_traffic\",\n  \"transform\": { \"limit\": 100 }\n}",
+      caption: "This configuration is validated before it is compiled into SQL.",
+    },
+  },
+  {
+    type: "separator",
+    category: "narrative",
+    purpose: "A horizontal divider between distinct rows or ideas inside a section.",
+    useWhen: [
+      "Separating chart rows, narrative groups, or a summary from supporting detail.",
+      "Creating visual rhythm without adding another card or background.",
+    ],
+    avoidWhen: [
+      "Between every tile; use it only where the content meaningfully changes.",
+      "As a substitute for a section title.",
+    ],
+    allowedParents: ["section"],
+    canBeDashboardChild: false,
+    isLeaf: true,
+    interactive: false,
+    example: {
+      type: "separator",
+      spacing: "comfortable",
+      layout: { columnSpan: 12 },
     },
   },
   {

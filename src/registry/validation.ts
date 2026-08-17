@@ -76,25 +76,67 @@ function checkDashboardChildren(spec: DashboardSpec, out: Violation[]): void {
 }
 
 function checkSection(section: Section, path: string, out: Violation[]): void {
-  if (![1, 2, 3, 4].includes(section.columns)) {
+  if (section.columns < 1 || section.columns > 12) {
     out.push({
       rule: "D-005",
       severity: "error",
-      message: `Section columns must be 1–4 (got ${section.columns}).`,
+      message: `Section columns must be 1–12 (got ${section.columns}).`,
       path,
     });
   }
-  if (section.children.length > 4) {
+  let rowWidth = 0;
+  let tilesInRow = 0;
+  let maxTilesInRow = 0;
+  for (const child of section.children) {
+    const span = Math.min(child.layout?.columnSpan ?? 1, section.columns);
+    const start = child.layout?.columnStart;
+    if (start && (start - 1 < rowWidth || start - 1 + span > section.columns)) {
+      rowWidth = 0;
+      tilesInRow = 0;
+    }
+    if (start) rowWidth = start - 1;
+    if (rowWidth + span > section.columns) {
+      rowWidth = 0;
+      tilesInRow = 0;
+    }
+    rowWidth += span;
+    tilesInRow++;
+    maxTilesInRow = Math.max(maxTilesInRow, tilesInRow);
+    if (rowWidth >= section.columns) {
+      rowWidth = 0;
+      tilesInRow = 0;
+    }
+  }
+  if (maxTilesInRow > 4) {
     out.push({
       rule: "D-003",
       severity: "warning",
-      message: `Section has ${section.children.length} leaves; max recommended is 4.`,
+      message: `Section places ${maxTilesInRow} tiles in one row; max recommended is 4.`,
       path,
     });
   }
   // Duplicate label check
   const seen = new Set<string>();
   for (const [j, child] of section.children.entries()) {
+    if (child.layout?.columnSpan && child.layout.columnSpan > section.columns) {
+      out.push({
+        rule: "D-015",
+        severity: "error",
+        message: `Tile columnSpan ${child.layout.columnSpan} exceeds its section's ${section.columns} columns.`,
+        path: `${path}.children.${j}.layout.columnSpan`,
+      });
+    }
+    if (
+      child.layout?.columnStart &&
+      child.layout.columnStart + (child.layout.columnSpan ?? 1) - 1 > section.columns
+    ) {
+      out.push({
+        rule: "D-022",
+        severity: "error",
+        message: `Tile starting at column ${child.layout.columnStart} with span ${child.layout.columnSpan ?? 1} exceeds the section grid.`,
+        path: `${path}.children.${j}.layout`,
+      });
+    }
     if (child.type === "metricCard") {
       if (seen.has(child.label)) {
         out.push({
@@ -131,12 +173,65 @@ function checkLeaf(leaf: Leaf, path: string, out: Violation[]): void {
       break;
     }
     case "chart": {
-      if (!leaf.data?.capability) {
+      if (!Array.isArray(leaf.data) && !("capability" in leaf.data) && !("dataset" in leaf.data)) {
         out.push({
           rule: "D-008",
           severity: "error",
-          message: "chart must reference a capability.",
+          message: "chart must provide inline data, a named dataset, or a capability.",
           path,
+        });
+      }
+      if (!leaf.xAxis && !leaf.x) {
+        out.push({
+          rule: "D-016",
+          severity: "error",
+          message: "chart must define xAxis.key (or legacy x).",
+          path,
+        });
+      }
+      if (!leaf.series && !leaf.y) {
+        out.push({
+          rule: "D-017",
+          severity: "error",
+          message: "chart must define at least one series (or legacy y).",
+          path,
+        });
+      }
+      const axisIds = new Set((leaf.yAxes ?? [{ id: "primary" }]).map((axis) => axis.id));
+      const seriesKeys = new Set<string>();
+      for (const [index, series] of (leaf.series ?? []).entries()) {
+        if (seriesKeys.has(series.key)) {
+          out.push({
+            rule: "D-018",
+            severity: "error",
+            message: `Duplicate chart series key "${series.key}".`,
+            path: `${path}.series.${index}`,
+          });
+        }
+        seriesKeys.add(series.key);
+        if (series.yAxisId && !axisIds.has(series.yAxisId)) {
+          out.push({
+            rule: "D-019",
+            severity: "error",
+            message: `Series "${series.key}" references unknown yAxisId "${series.yAxisId}".`,
+            path: `${path}.series.${index}.yAxisId`,
+          });
+        }
+        if (leaf.kind === "composed" && series.type && !["line", "area", "bar"].includes(series.type)) {
+          out.push({
+            rule: "D-020",
+            severity: "error",
+            message: `Composed charts only support line, area, and bar series (got "${series.type}").`,
+            path: `${path}.series.${index}.type`,
+          });
+        }
+      }
+      if (["pie", "donut", "radialBar", "funnel", "treemap"].includes(leaf.kind) && (leaf.series?.length ?? 1) > 1) {
+        out.push({
+          rule: "D-021",
+          severity: "error",
+          message: `${leaf.kind} charts accept exactly one series.`,
+          path: `${path}.series`,
         });
       }
       // A11y: title acts as the accessible name.
@@ -151,11 +246,11 @@ function checkLeaf(leaf: Leaf, path: string, out: Violation[]): void {
       break;
     }
     case "table": {
-      if (!leaf.data?.capability) {
+      if (!Array.isArray(leaf.data) && !("capability" in leaf.data) && !("dataset" in leaf.data)) {
         out.push({
           rule: "D-008",
           severity: "error",
-          message: "table must reference a capability.",
+          message: "table must provide inline data, a named dataset, or a capability.",
           path,
         });
       }
@@ -202,6 +297,17 @@ function checkLeaf(leaf: Leaf, path: string, out: Violation[]): void {
       }
       break;
     }
+    case "codeBlock": {
+      if (!leaf.code || leaf.code.trim().length === 0) {
+        out.push({
+          rule: "D-007f",
+          severity: "error",
+          message: "codeBlock must have non-empty code.",
+          path,
+        });
+      }
+      break;
+    }
     case "insight": {
       if (!leaf.content || leaf.content.trim().length === 0) {
         out.push({
@@ -235,6 +341,101 @@ function checkLeaf(leaf: Leaf, path: string, out: Violation[]): void {
   }
 }
 
+function checkDatasets(spec: DashboardSpec, out: Violation[]): void {
+  const datasets = spec.datasets ?? {};
+  for (const [name, definition] of Object.entries(datasets)) {
+    const transform = definition.transform;
+    if (transform.metrics.length > 0 && transform.select.length > 0) {
+      out.push({
+        rule: "Q-001",
+        severity: "error",
+        message: `Dataset "${name}" cannot combine aggregate metrics with plain select fields.`,
+        path: `datasets.${name}.transform`,
+      });
+    }
+    const outputs = new Set<string>();
+    for (const [index, outputName] of [
+      ...transform.select.map((field) => field.as ?? field.field),
+      ...transform.dimensions.map((field) => field.as ?? field.field),
+      ...transform.metrics.map((metric) => metric.as),
+    ].entries()) {
+      if (outputs.has(outputName)) {
+        out.push({
+          rule: "Q-002",
+          severity: "error",
+          message: `Dataset "${name}" has duplicate output field "${outputName}".`,
+          path: `datasets.${name}.transform.outputs.${index}`,
+        });
+      }
+      outputs.add(outputName);
+    }
+    for (const [index, metric] of transform.metrics.entries()) {
+      if (metric.operation !== "count" && !metric.field) {
+        out.push({
+          rule: "Q-003",
+          severity: "error",
+          message: `Dataset "${name}" metric "${metric.as}" requires a field.`,
+          path: `datasets.${name}.transform.metrics.${index}`,
+        });
+      }
+    }
+    for (const [index, filter] of transform.filters.entries()) {
+      const noValue = filter.operator === "isNull" || filter.operator === "isNotNull";
+      const setOperator = filter.operator === "in" || filter.operator === "notIn";
+      if (!noValue && filter.value === undefined) {
+        out.push({
+          rule: "Q-004",
+          severity: "error",
+          message: `Dataset "${name}" filter ${filter.operator} requires a value.`,
+          path: `datasets.${name}.transform.filters.${index}`,
+        });
+      } else if (setOperator && !Array.isArray(filter.value)) {
+        out.push({
+          rule: "Q-005",
+          severity: "error",
+          message: `Dataset "${name}" filter ${filter.operator} requires an array value.`,
+          path: `datasets.${name}.transform.filters.${index}.value`,
+        });
+      }
+    }
+    if (outputs.size > 0) {
+      for (const [index, sort] of transform.sort.entries()) {
+        if (!outputs.has(sort.field)) {
+          out.push({
+            rule: "Q-006",
+            severity: "error",
+            message: `Dataset "${name}" sorts by non-output field "${sort.field}".`,
+            path: `datasets.${name}.transform.sort.${index}.field`,
+          });
+        }
+      }
+    }
+  }
+
+  for (const [sectionIndex, section] of spec.children.entries()) {
+    for (const [leafIndex, leaf] of section.children.entries()) {
+      if ((leaf.type === "chart" || leaf.type === "table") && !Array.isArray(leaf.data) && "dataset" in leaf.data) {
+        if (!datasets[leaf.data.dataset]) {
+          out.push({
+            rule: "Q-007",
+            severity: "error",
+            message: `${leaf.type} references unknown dataset "${leaf.data.dataset}".`,
+            path: `children.${sectionIndex}.children.${leafIndex}.data.dataset`,
+          });
+        }
+      }
+      if (leaf.type === "metricCard" && leaf.valueRef && "dataset" in leaf.valueRef && !datasets[leaf.valueRef.dataset]) {
+        out.push({
+          rule: "Q-007",
+          severity: "error",
+          message: `metricCard references unknown dataset "${leaf.valueRef.dataset}".`,
+          path: `children.${sectionIndex}.children.${leafIndex}.valueRef.dataset`,
+        });
+      }
+    }
+  }
+}
+
 /* ============================================================
    Public entry point
    ============================================================ */
@@ -253,6 +454,7 @@ export function validateSpec(spec: unknown): ValidationResult {
     return { valid: violations.every((v) => v.severity !== "error"), violations };
   }
   checkDashboardChildren(node, violations);
+  checkDatasets(node, violations);
   for (const [i, section] of node.children.entries()) {
     const sectionPath = pathJoin("children", i);
     checkSection(section, sectionPath, violations);

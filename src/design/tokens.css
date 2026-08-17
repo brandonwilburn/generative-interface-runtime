@@ -55,6 +55,18 @@
   --color-chart-5: #b45309;
   --color-chart-6: #be185d;
 
+  /* ---------- color: hero presentation ---------- */
+  --gradient-hero-cool: linear-gradient(135deg, #111936, #193d5d 58%, #247b72);
+  --gradient-hero-warm: linear-gradient(135deg, #361b1b, #8b3d28 55%, #d18650);
+  --gradient-hero-forest: linear-gradient(135deg, #12251f, #1f5a45 55%, #8ba879);
+  --color-hero-overlay-light: rgba(255, 255, 255, 0.72);
+  --gradient-hero-overlay-dark: linear-gradient(
+    90deg,
+    rgba(8, 13, 24, 0.88),
+    rgba(8, 13, 24, 0.48) 68%,
+    rgba(8, 13, 24, 0.12)
+  );
+
   /* ---------- spacing (4pt scale) ---------- */
   --space-0: 0;
   --space-px: 1px;
@@ -143,6 +155,11 @@
   --layout-gutter: 32px;
   --layout-gutter-mobile: 16px;
   --layout-rail-width: 320px;
+  --layout-hero-height-compact: 220px;
+  --layout-hero-height-standard: 360px;
+  --layout-hero-height-large: 500px;
+  --layout-hero-height-standard-mobile: 300px;
+  --layout-hero-height-large-mobile: 380px;
 
   /* ---------- z-index ---------- */
   --z-base: 0;

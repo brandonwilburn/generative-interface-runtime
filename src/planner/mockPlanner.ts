@@ -9,6 +9,7 @@
 import type { DashboardSpec, MetricCard, Chart, Table, Insight, Section } from "@/dsl/schema";
 import { DATA } from "@/data/mockData";
 import type { Planner, PlannerContext, PlannerResult } from "./planner";
+import { showcaseDashboard } from "./showcaseDashboard";
 
 const deltaPct = (a: number, b: number): { value: number; direction: "up" | "down" | "flat" } => {
   if (a === 0) return { value: 0, direction: "flat" };
@@ -33,15 +34,42 @@ function mc(overrides: Partial<MetricCard> & { label: string; value?: number | s
   };
 }
 
-function ch(overrides: Partial<Chart> & { title: string; data: Chart["data"]; x: string; y: Chart["y"] }): Chart {
+function ch(
+  overrides: Partial<Chart> & {
+    title: string;
+    data: Chart["data"];
+    xAxis: Chart["xAxis"];
+    series: Chart["series"];
+  },
+): Chart {
   return {
     type: "chart",
     kind: "line",
     height: 220,
     yFormat: "number",
     showLegend: true,
+    yAxes: [ya()],
+    options: {
+      showGrid: true,
+      showLegend: true,
+      showTooltip: true,
+      legendPosition: "bottom",
+    },
     ...overrides,
   };
+}
+
+function xa(
+  key: string,
+  overrides: Partial<NonNullable<Chart["xAxis"]>> = {},
+): NonNullable<Chart["xAxis"]> {
+  return { key, type: "category", hide: false, ...overrides };
+}
+
+function ya(
+  overrides: Partial<NonNullable<Chart["yAxes"]>[number]> = {},
+): NonNullable<Chart["yAxes"]>[number] {
+  return { id: "primary", format: "number", side: "left", hide: false, ...overrides };
 }
 
 function tb(overrides: Partial<Table> & { data: Table["data"]; columns: Table["columns"] }): Table {
@@ -98,11 +126,10 @@ function monthlyPerformance(): DashboardSpec {
             kind: "area",
             title: "Daily revenue",
             data: { capability: "merchant.getRevenueSeries", params: { range: "30d" } },
-            x: "date",
-            y: "revenue",
-            yFormat: "currency",
+            xAxis: xa("date"),
+            yAxes: [ya({ format: "currency" })],
+            series: [{ key: "revenue", label: "Revenue", color: "chart.1" }],
             height: 240,
-            seriesColors: ["chart.1"],
           }),
         ],
       }),
@@ -159,11 +186,10 @@ function revenueDipDiagnostic(): DashboardSpec {
             kind: "line",
             title: "Daily revenue",
             data: { capability: "merchant.getRevenueSeries", params: { range: "30d" } },
-            x: "date",
-            y: "revenue",
-            yFormat: "currency",
+            xAxis: xa("date"),
+            yAxes: [ya({ format: "currency" })],
+            series: [{ key: "revenue", label: "Revenue", color: "chart.1" }],
             height: 240,
-            seriesColors: ["chart.1"],
           }),
         ],
       }),
@@ -373,6 +399,219 @@ function categoryMixView(): DashboardSpec {
   };
 }
 
+function chartGalleryView(): DashboardSpec {
+  const trendData = [
+    { month: "Jan", revenue: 84, target: 78, orders: 56 },
+    { month: "Feb", revenue: 91, target: 82, orders: 61 },
+    { month: "Mar", revenue: 88, target: 86, orders: 64 },
+    { month: "Apr", revenue: 104, target: 91, orders: 72 },
+    { month: "May", revenue: 116, target: 96, orders: 78 },
+    { month: "Jun", revenue: 128, target: 102, orders: 86 },
+  ];
+  const categoryData = [
+    { category: "Mains", actual: 46, forecast: 42 },
+    { category: "Drinks", actual: 31, forecast: 34 },
+    { category: "Sides", actual: 18, forecast: 16 },
+    { category: "Desserts", actual: 14, forecast: 12 },
+  ];
+  const shareData = [
+    { category: "Mains", value: 0.46 },
+    { category: "Drinks", value: 0.28 },
+    { category: "Sides", value: 0.16 },
+    { category: "Desserts", value: 0.1 },
+  ];
+  const scatterData = [
+    { spend: 12, revenue: 42 },
+    { spend: 18, revenue: 54 },
+    { spend: 24, revenue: 61 },
+    { spend: 31, revenue: 75 },
+    { spend: 37, revenue: 82 },
+    { spend: 45, revenue: 101 },
+    { spend: 53, revenue: 108 },
+  ];
+  const radarData = [
+    { metric: "Speed", current: 82, benchmark: 74 },
+    { metric: "Quality", current: 91, benchmark: 83 },
+    { metric: "Value", current: 76, benchmark: 79 },
+    { metric: "Service", current: 88, benchmark: 81 },
+    { metric: "Retention", current: 71, benchmark: 68 },
+  ];
+  const funnelData = [
+    { stage: "Visits", value: 1000 },
+    { stage: "Menu views", value: 720 },
+    { stage: "Checkout", value: 410 },
+    { stage: "Orders", value: 286 },
+  ];
+  const treemapData = [
+    { category: "Mains", value: 460 },
+    { category: "Drinks", value: 280 },
+    { category: "Sides", value: 160 },
+    { category: "Desserts", value: 100 },
+  ];
+
+  return {
+    type: "dashboard",
+    title: "Chart gallery",
+    description: "Every Recharts visualization exposed by the JSON runtime, using inline mock data.",
+    generatedFor: "Show all chart types",
+    children: [
+      sec({
+        title: "Trends over time",
+        description: "Multi-series charts, stacking, mixed marks, dimensions, and tile ordering are all JSON-controlled.",
+        columns: 12,
+        children: [
+          ch({
+            kind: "line",
+            title: "Line · Revenue vs target",
+            data: trendData,
+            xAxis: xa("month", { label: "Month" }),
+            yAxes: [ya({ label: "Revenue ($k)", format: "compact" })],
+            series: [
+              { key: "revenue", label: "Revenue", color: "chart.1", curve: "monotone", showDots: true },
+              { key: "target", label: "Target", color: "chart.4", curve: "monotone", showDots: false },
+            ],
+            height: 280,
+            layout: { columnSpan: 7, rowSpan: 1 },
+          }),
+          ch({
+            kind: "area",
+            title: "Area · Volume and target",
+            data: trendData,
+            xAxis: xa("month"),
+            yAxes: [ya()],
+            series: [
+              { key: "orders", label: "Orders", color: "chart.2", fillOpacity: 0.28 },
+              { key: "target", label: "Target", color: "chart.5", fillOpacity: 0.12 },
+            ],
+            height: 280,
+            layout: { columnSpan: 5, rowSpan: 1 },
+          }),
+          ch({
+            kind: "bar",
+            title: "Bar · Actual vs forecast",
+            data: categoryData,
+            xAxis: xa("category"),
+            yAxes: [ya()],
+            series: [
+              { key: "actual", label: "Actual", color: "chart.3" },
+              { key: "forecast", label: "Forecast", color: "chart.6" },
+            ],
+            height: 280,
+            layout: { columnSpan: 5, rowSpan: 1 },
+          }),
+          ch({
+            kind: "composed",
+            title: "Composed · Revenue, orders, and target",
+            data: trendData,
+            xAxis: xa("month"),
+            yAxes: [
+              ya({ id: "revenue", label: "Revenue ($k)", format: "compact" }),
+              ya({ id: "orders", label: "Orders", side: "right" }),
+            ],
+            series: [
+              { key: "revenue", label: "Revenue", type: "bar", color: "chart.1", yAxisId: "revenue" },
+              { key: "target", label: "Target", type: "line", color: "chart.4", yAxisId: "revenue" },
+              { key: "orders", label: "Orders", type: "area", color: "chart.2", yAxisId: "orders", fillOpacity: 0.12 },
+            ],
+            height: 300,
+            layout: { columnSpan: 7, rowSpan: 1 },
+          }),
+        ],
+      }),
+      sec({
+        title: "Relationships and proportions",
+        description: "Use scatter for correlation, and pie or donut for a small part-to-whole comparison.",
+        columns: 12,
+        children: [
+          ch({
+            kind: "scatter",
+            title: "Scatter · Spend vs revenue",
+            data: scatterData,
+            xAxis: xa("spend", { label: "Ad spend ($k)", type: "number", format: "compact" }),
+            yAxes: [ya({ label: "Revenue ($k)", format: "compact" })],
+            series: [{ key: "revenue", label: "Campaigns", color: "chart.1", yAxisId: "primary" }],
+            height: 270,
+            layout: { columnSpan: 6, rowSpan: 1 },
+          }),
+          ch({
+            kind: "pie",
+            title: "Pie · Revenue share",
+            data: shareData,
+            xAxis: xa("category"),
+            series: [{ key: "value", label: "Share", format: "percent", color: "chart.2", showLabels: true }],
+            height: 270,
+            layout: { columnSpan: 3, rowSpan: 1 },
+          }),
+          ch({
+            kind: "donut",
+            title: "Donut · Revenue share",
+            data: shareData,
+            xAxis: xa("category"),
+            series: [{ key: "value", label: "Share", format: "percent", color: "chart.3" }],
+            height: 270,
+            layout: { columnSpan: 3, rowSpan: 1 },
+          }),
+        ],
+      }),
+      sec({
+        title: "Profiles and progress",
+        description: "Radar compares several dimensions; radial bars show progress across categories.",
+        columns: 12,
+        children: [
+          ch({
+            kind: "radar",
+            title: "Radar · Performance profile",
+            data: radarData,
+            xAxis: xa("metric"),
+            yAxes: [ya({ domain: [0, 100] })],
+            series: [
+              { key: "current", label: "Current", color: "chart.1", fillOpacity: 0.24 },
+              { key: "benchmark", label: "Benchmark", color: "chart.4", fillOpacity: 0.1 },
+            ],
+            height: 310,
+            layout: { columnSpan: 7, rowSpan: 1 },
+          }),
+          ch({
+            kind: "radialBar",
+            title: "Radial bar · Category performance",
+            data: shareData,
+            xAxis: xa("category"),
+            yAxes: [ya({ format: "percent", domain: [0, 1] })],
+            series: [{ key: "value", label: "Performance", color: "chart.2" }],
+            height: 310,
+            layout: { columnSpan: 5, rowSpan: 1 },
+          }),
+        ],
+      }),
+      sec({
+        title: "Flow and hierarchy",
+        description: "Funnel exposes stage drop-off; treemap emphasizes relative size.",
+        columns: 12,
+        children: [
+          ch({
+            kind: "funnel",
+            title: "Funnel · Order conversion",
+            data: funnelData,
+            xAxis: xa("stage"),
+            series: [{ key: "value", label: "People", format: "number", color: "chart.1", showLabels: true }],
+            height: 310,
+            layout: { columnSpan: 5, rowSpan: 1 },
+          }),
+          ch({
+            kind: "treemap",
+            title: "Treemap · Revenue composition",
+            data: treemapData,
+            xAxis: xa("category"),
+            series: [{ key: "value", label: "Revenue", format: "currency", color: "chart.3", showLabels: true }],
+            height: 310,
+            layout: { columnSpan: 7, rowSpan: 1 },
+          }),
+        ],
+      }),
+    ],
+  };
+}
+
 function thisWeekView(): DashboardSpec {
   const cmp = DATA.comparison;
   const d = deltaPct(cmp.revenue.left.value, cmp.revenue.right.value);
@@ -402,11 +641,10 @@ function thisWeekView(): DashboardSpec {
             kind: "bar",
             title: "Daily revenue (last 7 days)",
             data: { capability: "merchant.getRevenueSeries", params: { range: "7d" } },
-            x: "date",
-            y: "revenue",
-            yFormat: "currency",
+            xAxis: xa("date"),
+            yAxes: [ya({ format: "currency" })],
+            series: [{ key: "revenue", label: "Revenue", color: "chart.2" }],
             height: 220,
-            seriesColors: ["chart.2"],
           }),
         ],
       }),
@@ -420,7 +658,7 @@ function thisWeekView(): DashboardSpec {
 
 function addRetentionCohort(spec: DashboardSpec): DashboardSpec {
   const already = spec.children.some((s) =>
-    s.children.some((c) => c.type === "table" && c.data.capability === "merchant.getRetentionCohort"),
+    s.children.some((c) => c.type === "table" && !Array.isArray(c.data) && "capability" in c.data && c.data.capability === "merchant.getRetentionCohort"),
   );
   if (already) return spec;
   return {
@@ -445,7 +683,7 @@ function addRetentionCohort(spec: DashboardSpec): DashboardSpec {
 
 function addHourlyPattern(spec: DashboardSpec): DashboardSpec {
   const already = spec.children.some((s) =>
-    s.children.some((c) => c.type === "table" && c.data.capability === "orders.getHourlyPattern"),
+    s.children.some((c) => c.type === "table" && !Array.isArray(c.data) && "capability" in c.data && c.data.capability === "orders.getHourlyPattern"),
   );
   if (already) return spec;
   return {
@@ -478,7 +716,7 @@ function addHourlyPattern(spec: DashboardSpec): DashboardSpec {
 
 function addTopCustomers(spec: DashboardSpec): DashboardSpec {
   const already = spec.children.some((s) =>
-    s.children.some((c) => c.type === "table" && c.data.capability === "customers.getTopCustomers"),
+    s.children.some((c) => c.type === "table" && !Array.isArray(c.data) && "capability" in c.data && c.data.capability === "customers.getTopCustomers"),
   );
   if (already) return spec;
   return {
@@ -509,7 +747,7 @@ function addTopCustomers(spec: DashboardSpec): DashboardSpec {
 
 function addCategoryMix(spec: DashboardSpec): DashboardSpec {
   const already = spec.children.some((s) =>
-    s.children.some((c) => c.type === "table" && c.data.capability === "inventory.getCategoryMix"),
+    s.children.some((c) => c.type === "table" && !Array.isArray(c.data) && "capability" in c.data && c.data.capability === "inventory.getCategoryMix"),
   );
   if (already) return spec;
   return {
@@ -594,6 +832,12 @@ function classify(intent: string, hasCurrent: boolean): Intent {
 
   if (/\bwhy\b.*\b(revenue|sales|low|down|dip|drop)/.test(s) || /\bdiagnos/.test(s)) {
     return { kind: "create", build: revenueDipDiagnostic };
+  }
+  if (/\b(all|every).*(chart|visualization)/.test(s) || /\bchart (types|gallery|showcase)\b/.test(s)) {
+    return { kind: "create", build: chartGalleryView };
+  }
+  if (/\b(northstar|sqlite|command center|showcase dashboard)\b/.test(s)) {
+    return { kind: "create", build: showcaseDashboard };
   }
   if (/\bbusiest|peak hour|when.*open|kitchen|hourly|day of week|by hour|by day/.test(s)) {
     return { kind: "create", build: hourlyPatternView };

@@ -1,5 +1,6 @@
 import type { MetricCard as MetricCardNode } from "@/dsl/schema";
 import { resolvePrimitive } from "@/renderer/resolveValue";
+import { useResolvedRows } from "@/data/DatasetContext";
 import { formatValue } from "@/renderer/format";
 import s from "@/renderer/renderer.module.css";
 
@@ -8,9 +9,16 @@ interface Props {
 }
 
 const arrow = { up: "↑", down: "↓", flat: "—" } as const;
+const EMPTY_ROWS: [] = [];
 
 export function MetricCardView({ node }: Props) {
-  const value = resolvePrimitive(node.value, node.valueRef);
+  const datasetRef = node.valueRef && "dataset" in node.valueRef ? node.valueRef : null;
+  const capabilityRef = node.valueRef && "capability" in node.valueRef ? node.valueRef : undefined;
+  const resolved = useResolvedRows(datasetRef ?? EMPTY_ROWS);
+  const queriedValue = datasetRef ? resolved.rows[0]?.[datasetRef.pick] : undefined;
+  const value = datasetRef
+    ? typeof queriedValue === "number" || typeof queriedValue === "string" ? queriedValue : 0
+    : resolvePrimitive(node.value, capabilityRef);
   const isPrimary = node.emphasis === "primary";
   const cls = [
     s["gir-card"],
@@ -23,7 +31,9 @@ export function MetricCardView({ node }: Props) {
   return (
     <div className={cls}>
       <div className={s["gir-metric__label"]}>{node.label}</div>
-      <div className={s["gir-metric__value"]}>{formatValue(value, node.format)}</div>
+      <div className={s["gir-metric__value"]}>
+        {resolved.loading ? "…" : resolved.error ? "Error" : formatValue(value, node.format)}
+      </div>
       {node.delta && (
         <span
           className={[

@@ -1,5 +1,7 @@
 import type { DashboardSpec } from "@/dsl/schema";
+import { DatasetProvider } from "@/data/DatasetContext";
 import { NodeRenderer } from "./NodeRenderer";
+import { HeroView } from "./HeroView";
 import s from "@/renderer/renderer.module.css";
 
 interface Props {
@@ -8,24 +10,22 @@ interface Props {
 
 export function DashboardView({ node }: Props) {
   return (
-    <div className={s["gir-dashboard"]}>
-      <header className={s["gir-dashboard__header"]}>
-        <div className={s["gir-dashboard__eyebrow"]}>Generated interface</div>
-        <h1 className={s["gir-dashboard__title"]}>{node.title}</h1>
-        {node.description && (
-          <p className={s["gir-dashboard__description"]}>{node.description}</p>
+    <DatasetProvider datasets={node.datasets ?? {}}>
+      <div className={s["gir-dashboard"]}>
+        {node.hero ? (
+          <HeroView node={node} />
+        ) : (
+          <header className={s["gir-dashboard__header"]}>
+            <h1 className={s["gir-dashboard__title"]}>{node.title}</h1>
+            {node.description && (
+              <p className={s["gir-dashboard__description"]}>{node.description}</p>
+            )}
+          </header>
         )}
-        {node.generatedFor && (
-          <div className={s["gir-dashboard__meta"]}>
-            <span className={s["gir-dashboard__meta-chip"]}>
-              Intent · {node.generatedFor}
-            </span>
-          </div>
-        )}
-      </header>
-      {node.children.map((section, i) => (
-        <NodeRenderer key={i} node={section} />
-      ))}
-    </div>
+        {node.children.map((section, i) => (
+          <NodeRenderer key={i} node={section} />
+        ))}
+      </div>
+    </DatasetProvider>
   );
 }

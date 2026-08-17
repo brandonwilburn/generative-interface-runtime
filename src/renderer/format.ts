@@ -53,7 +53,7 @@ export function formatValue(v: unknown, format: NumberFormat): string {
 
 export function formatAxisTick(v: number, format: NumberFormat): string {
   if (format === "currency") {
-    if (Math.abs(v) >= 1000) return `$${compactFmt.format(v / 1000)}k`;
+    if (Math.abs(v) >= 1000) return `$${compactFmt.format(v)}`;
     if (v === 0) return "$0";
     return `$${Math.round(v)}`;
   }
@@ -70,7 +70,13 @@ export function formatAxisTick(v: number, format: NumberFormat): string {
 export function shortDate(iso: string): string {
   // YYYY-MM-DD → "Aug 12"
   const [y, m, d] = iso.split("-").map((s) => parseInt(s, 10));
-  if (!y || !m || !d) return iso;
+  if (!y || !m) return iso;
+  if (!d) {
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-US", {
+      month: "short",
+      timeZone: "UTC",
+    });
+  }
   const date = new Date(Date.UTC(y, m - 1, d));
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }

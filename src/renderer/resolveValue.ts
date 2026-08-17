@@ -4,7 +4,7 @@
  * Used by MetricCard, Comparison, Chart, and Table to fetch data lazily.
  */
 import { resolveCapability } from "@/data/capabilityResolver";
-import type { CapabilityRef } from "@/dsl/schema";
+import type { CapabilityRef, ChartData } from "@/dsl/schema";
 
 export function resolvePrimitive(
   inline: unknown,
@@ -30,7 +30,11 @@ export function resolvePrimitive(
   return 0;
 }
 
-export function resolveRows(ref: CapabilityRef): Array<Record<string, unknown>> {
+export function resolveRows(ref: CapabilityRef): Array<Record<string, unknown>>;
+export function resolveRows(ref: ChartData): Array<Record<string, unknown>>;
+export function resolveRows(ref: ChartData): Array<Record<string, unknown>> {
+  if (Array.isArray(ref)) return ref;
+  if ("dataset" in ref) return [];
   const data = resolveCapability(ref);
   if (!Array.isArray(data)) return [];
   const rows = data as Array<Record<string, unknown>>;

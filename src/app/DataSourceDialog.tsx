@@ -10,7 +10,7 @@
  * tab that runs the LLM-driven adaptation call.
  */
 import { useEffect, useRef, useState } from "react";
-import { type SourceRecord, fetchSourceData } from "@/data/sourcesRegistry";
+import type { SourceRecord } from "@/data/sourcesRegistry";
 import { summarizeSource } from "@/data/dynamicCapabilities";
 import s from "./app.module.css";
 
@@ -35,7 +35,7 @@ interface Preview {
 }
 
 const MAX_PREVIEW_ROWS = 5;
-const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
 async function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -255,7 +255,7 @@ export function DataSourceDialog(props: Props) {
                       Drop a <code>.csv</code> or <code>.json</code> file here
                     </div>
                     <div className={s["dsd__dropzone-sub"]}>
-                      or click to choose · up to 5 MB
+                      or click to choose · up to 50 MB
                     </div>
                     <input
                       ref={fileInput}
@@ -396,8 +396,6 @@ export function DataSourceDialog(props: Props) {
           </div>
         )}
 
-        {/* Suppress unused warnings for the helpers used by future tabs. */}
-        {false && <>{fetchSourceData}</>}
       </div>
     </div>
   );

@@ -12,5 +12,12 @@ export function TextView({ node }: Props) {
     .filter(Boolean)
     .join(" ");
   const Tag = node.as as keyof React.JSX.IntrinsicElements;
-  return <Tag className={cls}>{node.content}</Tag>;
+  const content = <Tag className={cls}>{node.content}</Tag>;
+  if (!node.title) return content;
+  return (
+    <article className={s["gir-text-block"]}>
+      <h3 className={s["gir-text-block__title"]}>{node.title}</h3>
+      {content}
+    </article>
+  );
 }
